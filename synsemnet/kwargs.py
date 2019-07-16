@@ -270,6 +270,70 @@ SYN_SEM_NET_KWARGS = [
         False,
         bool,
         "Log the network graph to Tensorboard"
+    ),
+
+    # Data settings
+    Kwarg(
+        'vocab_emb_dim',
+        None,
+        [int, None],
+        "Dimensionality of vocabulary embedding layer. If ``None`` or ``0``, no vocabulary embedding used."
+    ),
+    Kwarg(
+        'character_emb_dim',
+        None,
+        [int, None],
+        "Dimensionality of character embedding layer. If ``None`` or ``0``, no character embedding used."
+    ),
+
+    # Model settings
+    Kwarg(
+        'syn_n_layers',
+        2,
+        int,
+        "Number of layers to use for the syntactic encoder."
+    ),
+    Kwarg(
+        'syn_n_units',
+        128,
+        [int, str],
+        "Number of units to use in the syntactic encoder layers. Can be an ``int``, which will be used for all layers, a ``str`` with **n_layers_encoder** space-delimited integers, or one for each layer in order from bottom to top."
+    ),
+    Kwarg(
+        'sem_n_layers',
+        2,
+        int,
+        "Number of layers to use for the semantic encoder."
+    ),
+    Kwarg(
+        'sem_n_units',
+        128,
+        [int, str],
+        "Number of units to use in the semantic encoder layers. Can be an ``int``, which will be used for all layers, a ``str`` with **n_layers_encoder** space-delimited integers, or one for each layer in order from bottom to top."
+    ),
+    Kwarg(
+        'activation',
+        'tanh',
+        [str, None],
+        "Name of activation to use at the output of the encoders",
+    ),
+    Kwarg(
+        'recurrent_activation',
+        'sigmoid',
+        [str, None],
+        "Name of activation to use for recurrent gates",
+    ),
+    Kwarg(
+        'resnet_n_layers_inner',
+        1,
+        int,
+        "Implement internal encoder layers as residual layers with **resnet_n_layers_inner** internal layers each. If 1, do not use residual layers.",
+    ),
+    Kwarg(
+        'project_encodings',
+        True,
+        bool,
+        "Whether to apply a linear projection at the output of the encoders."
     )
 ]
 
