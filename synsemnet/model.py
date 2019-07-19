@@ -34,12 +34,13 @@ class SynSemNet(object):
                              x in _INITIALIZATION_KWARGS])
     __doc__ = _doc_header + _doc_args + _doc_kwargs
 
-    def __init__(self, vocab, charset=None, **kwargs):
+    def __init__(self, char_set, pos_label_set, parse_label_set, **kwargs):
         for kwarg in SynSemNet._INITIALIZATION_KWARGS:
             setattr(self, kwarg.key, kwargs.pop(kwarg.key, kwarg.default_value))
 
-        self.vocab = vocab
-        self.charset = charset
+        self.char_set = char_set
+        self.pos_label_set = pos_label_set
+        self.parse_label_set = parse_label_set
 
         self._initialize_session()
         self._initialize_metadata()
@@ -58,8 +59,9 @@ class SynSemNet(object):
         self.UINT_NP = getattr(tf, 'u' + self.int_type)
         self.regularizer_losses = []
 
-        self.vocab_size = len(self.vocab)
-        self.charset_size = len(self.charset)
+        self.n_char = len(self.char_set)
+        self.n_pos = len(self.pos_label_set)
+        self.n_parse_label = len(self.parse_label_set)
 
         if isinstance(self.syn_n_units, str):
             self.syn_encoder_units = [int(x) for x in self.syn_n_units.split()]
@@ -83,15 +85,17 @@ class SynSemNet(object):
 
     def _pack_metadata(self):
         md = {}
-        md['vocab'] = self.vocab
-        md['charset'] = self.charset
+        md['char_set'] = self.char_set
+        md['pos_label_set'] = self.pos_label_set
+        md['parse_label_set'] = self.parse_label_set
         for kwarg in SynSemNet._INITIALIZATION_KWARGS:
             md[kwarg.key] = getattr(self, kwarg.key)
         return md
 
     def _unpack_metadata(self, md):
-        self.vocab = md.get('vocab')
-        self.charset = md.get('charset')
+        self.char_set = md.get('char_set')
+        self.pos_label_set = md.get('pos_label_set')
+        self.parse_label_set = md.get('parse_label_set')
         for kwarg in SynSemNet._INITIALIZATION_KWARGS:
             setattr(self, kwarg.key, md.pop(kwarg.key, kwarg.default_value))
 
@@ -126,12 +130,13 @@ class SynSemNet(object):
             self.syn_encoder_units,
             name='syntactic_encoder'
         )
-        self.semactic_encoding = self._initialize_encoding(
+        self.semantic_encoding = self._initialize_encoding(
             self.word_embedding,
             self.sem_n_layers,
             self.sem_encoder_units,
             name='semantic_encoder'
         )
+        self._initialize_outputs()
         self._initialize_objective()
         self._initialize_ema()
         self._initialize_saver()
@@ -150,15 +155,17 @@ class SynSemNet(object):
                 self.training = tf.placeholder_with_default(tf.constant(True, dtype=tf.bool), shape=[], name='training')
 
                 self.characters = tf.placeholder(tf.string, shape=[None, None, None], name='characters')
+                self.char_mask = tf.placeholder(self.FLOAT_TF, shape=[None, None, None], name='char_mask')
+                self.word_mask = tf.cast(tf.reduce_any(self.char_mask > 0, axis=-1), dtype=self.FLOAT_TF)
                 self.char_table, self.char_embedding_matrix = initialize_embeddings(
-                    self.charset,
+                    self.char_set,
                     self.character_emb_dim,
                     name='character_embedding',
                     session=self.sess
                 )
                 self.char_one_hot = tf.one_hot(
                     self.char_table.lookup(self.characters),
-                    self.charset_size + 1,
+                    self.n_char + 1,
                     dtype=self.FLOAT_TF
                 )
                 if self.optim_name == 'Nadam':  # Nadam can't handle sparse embedding lookup, so do it with matmul
@@ -205,11 +212,12 @@ class SynSemNet(object):
                 F = encoder.shape[3]
 
                 encoder_flattened = tf.reshape(encoder, [B * W, C, F])
+                mask_flattened = tf.reshape(self.char_mask, [B * W, C])
 
-                char_encoder_fwd = char_encoder_fwd(encoder_flattened)
-                char_encoder_bwd = char_encoder_bwd(encoder_flattened)
+                char_encoder_fwd = char_encoder_fwd(encoder_flattened, mask=mask_flattened)
+                char_encoder_bwd = char_encoder_bwd(tf.reverse(encoder_flattened, axis=[1]), tf.reverse(mask_flattened, axis=[1]))
 
-                encoder = tf.concat([char_encoder_bwd, char_encoder_fwd], axis=-1)
+                encoder = tf.concat([char_encoder_bwd, char_encoder_fwd], axis=1)
 
                 encoder = tf.reshape(encoder, [B, W, self.word_emb_dim])
 
@@ -244,18 +252,32 @@ class SynSemNet(object):
                 encoder = word_embedding
 
                 for l in range(n_layers):
-                    encoder = RNNLayer(
+                    encoder_fwd = RNNLayer(
                         training=self.training,
-                        units=n_units[l],
+                        units=int(n_units[l] / 2),
                         activation=self.activation,
                         recurrent_activation=self.recurrent_activation,
                         return_sequences=True,
                         name=name + '_l%d' % l,
                         session=self.sess
-                    )(encoder)
+                    )(encoder, mask=self.word_mask)
+
+                    if self.bidirectional:
+                        encoder_bwd = RNNLayer(
+                            training=self.training,
+                            units=int(n_units[l] / 2),
+                            activation=self.activation,
+                            recurrent_activation=self.recurrent_activation,
+                            return_sequences=True,
+                            name=name + '_l%d' % l,
+                            session=self.sess
+                        )(tf.reverse(encoder, axis=[1]), mask=tf.reverse(self.word_mask, axis=[1]))
+                        encoder = tf.concat([encoder_fwd, encoder_bwd], axis=2)
+                    else:
+                        encoder = encoder_fwd
 
                 if self.project_encodings:
-                    if l > 0 and self.resnet_n_layers_inner:
+                    if self.resnet_n_layers_inner:
                         encoder = DenseResidualLayer(
                             training=self.training,
                             units=n_units[-1],
@@ -277,7 +299,46 @@ class SynSemNet(object):
                             name=name + '_projection'
                         )(encoder)
 
+                    encoder *= self.word_mask[..., None]
+
                 return encoder
+
+    def _initialize_outputs(self):
+        with self.sess.as_default():
+            with self.sess.graph.as_default():
+                self.pos_label_prediction_from_syn = DenseLayer(
+                    training=self.training,
+                    units=self.n_pos,
+                    kernel_initializer='he_normal_initializer',
+                    activation=None,
+                    session=self.sess,
+                    name='pos_label_prediction_from_syn'
+                )(self.synactic_encoding)
+                self.parse_label_prediction_from_syn = DenseLayer(
+                    training=self.training,
+                    units=self.n_parse_label,
+                    kernel_initializer='he_normal_initializer',
+                    activation=None,
+                    session=self.sess,
+                    name='parse_label_prediction_from_syn'
+                )(self.synactic_encoding)
+
+                self.pos_label_prediction_from_sem = DenseLayer(
+                    training=self.training,
+                    units=self.n_pos,
+                    kernel_initializer='he_normal_initializer',
+                    activation=None,
+                    session=self.sess,
+                    name='pos_label_prediction_from_sem'
+                )(self.semantic_encoding)
+                self.parse_label_prediction_from_sem = DenseLayer(
+                    training=self.training,
+                    units=self.n_parse_label,
+                    kernel_initializer='he_normal_initializer',
+                    activation=None,
+                    session=self.sess,
+                    name='parse_label_prediction_from_sem'
+                )(self.semantic_encoding)
 
     def _initialize_objective(self):
         pass

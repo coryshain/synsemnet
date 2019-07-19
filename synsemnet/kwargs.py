@@ -282,6 +282,12 @@ SYN_SEM_NET_KWARGS = [
         "Dimensionality of vocabulary embedding layer. If ``None`` or ``0``, no vocabulary embedding used."
     ),
     Kwarg(
+        'bidirectional',
+        True,
+        bool,
+        "Use bi-directional encoder over words."
+    ),
+    Kwarg(
         'project_word_embeddings',
         True,
         bool,

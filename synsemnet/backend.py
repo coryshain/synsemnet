@@ -260,8 +260,8 @@ class DenseLayer(object):
 
                 return H
 
-    def call(self):
-        self.__call__()
+    def call(self, *args, **kwargs):
+        self.__call__(*args, **kwargs)
 
 
 class DenseResidualLayer(object):
@@ -418,8 +418,8 @@ class DenseResidualLayer(object):
 
                 return H
 
-    def call(self):
-        self.__call__()
+    def call(self, *args, **kwargs):
+        self.__call__(*args, **kwargs)
 
 
 class RNNLayer(object):
@@ -497,5 +497,5 @@ class RNNLayer(object):
 
                 return H
 
-    def call(self):
-        self.__call__()
+    def call(self, *args, **kwargs):
+        self.__call__(*args, **kwargs)
