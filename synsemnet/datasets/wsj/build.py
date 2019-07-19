@@ -12,7 +12,7 @@ def clean_up_trees(path):
     trees = []
     tree_cur = ''
     with open(path, 'r') as f:
-        for l in f.readlines():
+        for l in f:
             line = l.strip()
             if line:
                 tree_cur += line + ' '

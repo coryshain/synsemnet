@@ -42,14 +42,14 @@ class SynSemNet(object):
         self.charset = charset
 
         self._initialize_session()
+        self._initialize_metadata()
+        self.build()
 
     def _initialize_session(self):
         self.g = tf.Graph()
         self.sess = tf.Session(graph=self.g, config=tf_config)
 
     def _initialize_metadata(self):
-        assert not (self.streaming and (self.task.lower() == 'classifier')), 'Streaming mode is not supported for the classifier task.'
-
         self.FLOAT_TF = getattr(tf, self.float_type)
         self.FLOAT_NP = getattr(np, self.float_type)
         self.INT_TF = getattr(tf, self.int_type)
@@ -64,18 +64,18 @@ class SynSemNet(object):
         if isinstance(self.syn_n_units, str):
             self.syn_encoder_units = [int(x) for x in self.syn_n_units.split()]
             if len(self.syn_encoder_units) == 1:
-                self.syn_encoder_units = [self.syn_encoder_units[0]] * (self.syn_n_layers - 1)
+                self.syn_encoder_units = [self.syn_encoder_units[0]] * self.syn_n_layers
         elif isinstance(self.syn_n_units, int):
-            self.syn_encoder_units = [self.syn_n_units] * (self.syn_n_layers - 1)
+            self.syn_encoder_units = [self.syn_n_units] * self.syn_n_layers
         else:
             self.syn_encoder_units = self.syn_n_units
 
         if isinstance(self.sem_n_units, str):
             self.sem_encoder_units = [int(x) for x in self.sem_n_units.split()]
             if len(self.sem_encoder_units) == 1:
-                self.sem_encoder_units = [self.sem_encoder_units[0]] * (self.sem_n_layers - 1)
+                self.sem_encoder_units = [self.sem_encoder_units[0]] * self.sem_n_layers
         elif isinstance(self.sem_n_units, int):
-            self.sem_encoder_units = [self.sem_n_units] * (self.sem_n_layers - 1)
+            self.sem_encoder_units = [self.sem_n_units] * self.sem_n_layers
         else:
             self.sem_encoder_units = self.sem_n_units
 
@@ -94,6 +94,8 @@ class SynSemNet(object):
         self.charset = md.get('charset')
         for kwarg in SynSemNet._INITIALIZATION_KWARGS:
             setattr(self, kwarg.key, md.pop(kwarg.key, kwarg.default_value))
+
+        self.build()
 
     def __getstate__(self):
         return self._pack_metadata()
@@ -116,53 +118,131 @@ class SynSemNet(object):
             if not hasattr(self, 'outdir'):
                 self.outdir = './synsemnet_model/'
 
-                self._initialize_inputs()
-                self.synactic_encoding = self._initialize_encoding(self.syn_n_layers, self.syn_encoder_units, name='syntactic_encoder')
-                self.semactic_encoding = self._initialize_encoding(self.sem_n_layers, self.sem_encoder_units, name='semantic_encoder')
-                self._initialize_objective()
-                self._initialize_ema()
-                self._initialize_saver()
-                self._initialize_logging()
+        self._initialize_inputs()
+        self.word_embedding = self._initialize_word_embedding()
+        self.synactic_encoding = self._initialize_encoding(
+            self.word_embedding,
+            self.syn_n_layers,
+            self.syn_encoder_units,
+            name='syntactic_encoder'
+        )
+        self.semactic_encoding = self._initialize_encoding(
+            self.word_embedding,
+            self.sem_n_layers,
+            self.sem_encoder_units,
+            name='semantic_encoder'
+        )
+        self._initialize_objective()
+        self._initialize_ema()
+        self._initialize_saver()
+        self._initialize_logging()
 
-                with self.sess.as_default():
-                    with self.sess.graph.as_default():
-                        self.report_uninitialized = tf.report_uninitialized_variables(
-                            var_list=None
-                        )
-                self.load(restore=restore)
+        with self.sess.as_default():
+            with self.sess.graph.as_default():
+                self.report_uninitialized = tf.report_uninitialized_variables(
+                    var_list=None
+                )
+        self.load(restore=restore)
 
     def _initialize_inputs(self):
         with self.sess.as_default():
             with self.sess.graph.as_default():
-                self.words = tf.placeholder(tf.string, shape=[None, None], name='words')
-                self.vocab_table, self.vocab_embedding_matrix = initialize_embeddings(
-                    self.vocab,
-                    self.vocab_emb_dim,
-                    name='vocab_embedding',
+                self.training = tf.placeholder_with_default(tf.constant(True, dtype=tf.bool), shape=[], name='training')
+
+                self.characters = tf.placeholder(tf.string, shape=[None, None, None], name='characters')
+                self.char_table, self.char_embedding_matrix = initialize_embeddings(
+                    self.charset,
+                    self.character_emb_dim,
+                    name='character_embedding',
                     session=self.sess
                 )
-                self.words_one_hot = tf.one_hot(
-                    self.vocab_table.lookup(self.words),
-                    self.vocab_size + 1,
+                self.char_one_hot = tf.one_hot(
+                    self.char_table.lookup(self.characters),
+                    self.charset_size + 1,
                     dtype=self.FLOAT_TF
                 )
                 if self.optim_name == 'Nadam':  # Nadam can't handle sparse embedding lookup, so do it with matmul
-                    self.word_embeddings = tf.matmul(
-                        self.words_one_hot,
-                        self.vocab_embedding_matrix
+                    self.character_embeddings = tf.matmul(
+                        self.char_one_hot,
+                        self.char_embedding_matrix
                     )
                 else:
-                    self.word_embeddings = tf.nn.embedding_lookup(
-                        self.vocab_embedding_matrix,
-                        self.vocab_table.lookup(self.words)
+                    self.character_embeddings = tf.nn.embedding_lookup(
+                        self.char_embedding_matrix,
+                        self.char_table.lookup(self.characters)
                     )
 
                 self.task = tf.placeholder(self.INT_TF, shape=[None], name='task')
 
-    def _initialize_encoding(self, n_layers, n_units, name='encoder'):
+    def _initialize_word_embedding(self):
+        name = 'word_encoding'
         with self.sess.as_default():
             with self.sess.graph.as_default():
-                encoder = self.word_embeddings
+                encoder = self.character_embeddings
+
+                char_encoder_fwd = RNNLayer(
+                    training=self.training,
+                    units=int(self.word_emb_dim / 2),
+                    activation=self.activation,
+                    recurrent_activation=self.recurrent_activation,
+                    return_sequences=False,
+                    name=name + '_char_encoder_fwd',
+                    session=self.sess
+                )
+                char_encoder_bwd = RNNLayer(
+                    training=self.training,
+                    units=int(self.word_emb_dim / 2),
+                    activation=self.activation,
+                    recurrent_activation=self.recurrent_activation,
+                    return_sequences=False,
+                    name=name + '_char_encoder_bwd',
+                    session=self.sess
+                )
+
+                B = tf.shape(encoder)[0]
+                W = tf.shape(encoder)[1]
+                C = tf.shape(encoder)[2]
+                F = encoder.shape[3]
+
+                encoder_flattened = tf.reshape(encoder, [B * W, C, F])
+
+                char_encoder_fwd = char_encoder_fwd(encoder_flattened)
+                char_encoder_bwd = char_encoder_bwd(encoder_flattened)
+
+                encoder = tf.concat([char_encoder_bwd, char_encoder_fwd], axis=-1)
+
+                encoder = tf.reshape(encoder, [B, W, self.word_emb_dim])
+
+                if self.project_word_embeddings:
+                    if self.resnet_n_layers_inner:
+                        encoder = DenseResidualLayer(
+                            training=self.training,
+                            units=self.word_emb_dim,
+                            kernel_initializer='identity_initializer',
+                            layers_inner=self.resnet_n_layers_inner,
+                            activation_inner=self.activation,
+                            activation=self.activation,
+                            project_inputs=False,
+                            session=self.sess,
+                            name=name + '_projection'
+                        )(encoder)
+                    else:
+                        encoder = DenseLayer(
+                            training=self.training,
+                            units=self.word_emb_dim,
+                            kernel_initializer='identity_initializer',
+                            activation=self.activation,
+                            session=self.sess,
+                            name=name + '_projection'
+                        )(encoder)
+
+                return encoder
+
+    def _initialize_encoding(self, word_embedding, n_layers, n_units, name='encoder'):
+        with self.sess.as_default():
+            with self.sess.graph.as_default():
+                encoder = word_embedding
+
                 for l in range(n_layers):
                     encoder = RNNLayer(
                         training=self.training,
@@ -175,7 +255,7 @@ class SynSemNet(object):
                     )(encoder)
 
                 if self.project_encodings:
-                    if self.resnet_n_layers > 1:
+                    if l > 0 and self.resnet_n_layers_inner:
                         encoder = DenseResidualLayer(
                             training=self.training,
                             units=n_units[-1],
@@ -195,12 +275,12 @@ class SynSemNet(object):
                             activation=self.activation,
                             session=self.sess,
                             name=name + '_projection'
-                        )
+                        )(encoder)
 
                 return encoder
 
     def _initialize_objective(self):
-        raise NotImplementedError
+        pass
 
     def _initialize_saver(self):
         with self.sess.as_default():
@@ -223,7 +303,7 @@ class SynSemNet(object):
                     self.ema_saver = tf.train.Saver(self.ema_map)
 
     def _initialize_logging(self):
-        raise NotImplementedError
+        pass
 
 
 

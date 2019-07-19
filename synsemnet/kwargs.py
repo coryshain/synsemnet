@@ -147,7 +147,7 @@ SYN_SEM_NET_KWARGS = [
     # Optimization hyperparams
     Kwarg(
         'optim_name',
-        'Nadam',
+        'Adam',
         [str, None],
         """Name of the optimizer to use. Must be one of:
     
@@ -273,11 +273,19 @@ SYN_SEM_NET_KWARGS = [
     ),
 
     # Data settings
+
+    # Model settings
     Kwarg(
-        'vocab_emb_dim',
+        'word_emb_dim',
         None,
         [int, None],
         "Dimensionality of vocabulary embedding layer. If ``None`` or ``0``, no vocabulary embedding used."
+    ),
+    Kwarg(
+        'project_word_embeddings',
+        True,
+        bool,
+        "Whether to pass word embeddings through a linear projection."
     ),
     Kwarg(
         'character_emb_dim',
@@ -285,8 +293,6 @@ SYN_SEM_NET_KWARGS = [
         [int, None],
         "Dimensionality of character embedding layer. If ``None`` or ``0``, no character embedding used."
     ),
-
-    # Model settings
     Kwarg(
         'syn_n_layers',
         2,
@@ -334,12 +340,32 @@ SYN_SEM_NET_KWARGS = [
         True,
         bool,
         "Whether to apply a linear projection at the output of the encoders."
-    )
+    ),
+    Kwarg(
+        'resnet_n_layers_inner',
+        None,
+        [int, None],
+        "Implement internal encoder layers as residual layers with **resnet_n_layers_inner** internal layers each. If ``None``, do not use residual layers.",
+    ),
+
+    # Numeric settings
+    Kwarg(
+        'float_type',
+        'float32',
+        str,
+        "``float`` type to use throughout the network."
+    ),
+    Kwarg(
+        'int_type',
+        'int32',
+        str,
+        "``int`` type to use throughout the network (used for tensor slicing)."
+    ),
 ]
 
 
 def synsemnet_kwarg_docstring():
-    out = "**Both MLE and Bayes**\n\n"
+    out = "**SynSemNet:**\n\n"
 
     for kwarg in SYN_SEM_NET_KWARGS:
         out += '- **%s**: %s; %s\n' % (kwarg.key, kwarg.dtypes_str(), kwarg.descr)

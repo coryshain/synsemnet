@@ -17,9 +17,13 @@ class Config(object):
 
         # Data
         data = config['data']
-        self.train_data_dir = data.get('train_data_dir', './')
-        self.val_data_dir = data.get('val_data_dir', './')
-        self.test_data_dir = data.get('test_data_dir', './')
+        self.parsing_train_data_path = data.get('parsing_train_data_path', './')
+        self.parsing_val_data_path = data.get('parsing_val_data_path', './')
+        self.parsing_test_data_path = data.get('parsing_test_data_path', './')
+
+        self.sts_train_data_path = data.get('sts_train_data_path', './')
+        self.sts_val_data_path = data.get('sts_val_data_path', './')
+        self.sts_test_data_path = data.get('sts_test_data_path', './')
 
         # SETTINGS
         # Output directory
