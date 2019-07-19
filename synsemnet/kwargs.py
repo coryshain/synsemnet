@@ -294,7 +294,7 @@ SYN_SEM_NET_KWARGS = [
         "Whether to pass word embeddings through a linear projection."
     ),
     Kwarg(
-        'character_emb_dim',
+        'character_embedding_dim',
         None,
         [int, None],
         "Dimensionality of character embedding layer. If ``None`` or ``0``, no character embedding used."

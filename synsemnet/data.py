@@ -1,6 +1,14 @@
+import math
 import numpy as np
 
 from synsemnet.util import stderr
+
+
+def get_random_permutation(n):
+    p = np.random.permutation(np.arange(n))
+    p_inv = np.zeros_like(p)
+    p_inv[p] = np.arange(n)
+    return p, p_inv
 
 
 def get_seq_shape(seq):
@@ -206,7 +214,7 @@ class Dataset(object):
                 f = self.char2int
         else:
             as_words = True
-            if data_type.lower().endswith('pos'):
+            if data_type.lower().endswith('pos_label'):
                 src = 'pos'
                 if as_char:
                     f = lambda x: x
@@ -246,11 +254,53 @@ class Dataset(object):
 
         return out, mask
 
-    def cache_processed_data(self):
+    def cache_data(self):
         self.cache['syn_text'], self.cache['syn_text_mask'] = self.get_padded_seqs(
             'syn_text_char_tokenized',
-            as_char=True
+            as_char=False
         )
+        self.cache['pos_label'], _ = self.get_padded_seqs('pos_label')
+        self.cache['parse_label'], _ = self.get_padded_seqs('parse_label')
+
+    def get_data_feed(
+            self,
+            minibatch_size=128,
+            randomize=False
+    ):
+        syn_text = self.cache['syn_text']
+        syn_text_mask = self.cache['syn_text_mask']
+        pos_label = self.cache['pos_label']
+        parse_label = self.cache['parse_label']
+        n = self.get_n()
+
+        i = 0
+
+        if randomize:
+            ix, ix_inv = get_random_permutation(n)
+        else:
+            ix = np.arange(n)
+
+        while i < n:
+            indices = ix[i:i+minibatch_size]
+
+            out = {
+                'syn_text': syn_text[indices],
+                'syn_text_mask': syn_text_mask[indices],
+                'pos_label': pos_label[indices],
+                'parse_label': parse_label[indices],
+            }
+
+            yield out
+
+            i += minibatch_size
+
+    def get_n(self):
+        return len(self.cache['syn_text'])
+
+    def get_n_minibatch(self, minibatch_size):
+        return math.ceil(self.get_n() / minibatch_size)
+
+
 
 
 

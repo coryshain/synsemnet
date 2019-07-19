@@ -35,11 +35,9 @@ if __name__ == '__main__':
     else:
         stderr('Reading and processing data...\n')
         train_data = Dataset(p.parsing_train_data_path, p.sts_train_data_path)
-        train_data.cache_processed_data()
+        train_data.cache_data()
         with open('saved_data.obj', 'wb') as f:
             pickle.dump(train_data, f)
-
-    x, mask = train_data.cache['syn_text'], train_data.cache['syn_text_mask']
 
     m = SynSemNet(
         train_data.get_charset(),
@@ -47,4 +45,6 @@ if __name__ == '__main__':
         train_data.get_parse_label_set(),
         **kwargs
     )
+
+    m.fit(train_data, 1000)
 
