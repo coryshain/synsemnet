@@ -67,6 +67,31 @@ def pad_sequence(sequence, seq_shape=None, dtype='float32', reverse=False, paddi
     return sequence
 
 
+def print_interlinearized(lines, max_tokens=20):
+    out = []
+    for l1 in zip(*lines):
+        out.append([])
+        n_tok = 0
+        for w in zip(*l1):
+            if n_tok == max_tokens:
+                out[-1].append([[] for _ in range(len(w))])
+            if len(out[-1]) == 0:
+                out[-1].append([[] for _ in range(len(w))])
+            max_len = max([len(x) for x in w])
+            for i, x in enumerate(w):
+                out[-1][-1][i].append(x + ' ' * (max_len - len(x)))
+            n_tok += 1
+
+    string = ''
+    for l1 in out:
+        for l2 in l1:
+            for x in l2:
+                string += ' '.join(x) + '\n'
+        string += '\n'
+
+    return string
+
+
 class Dataset(object):
     def __init__(
             self,
@@ -128,7 +153,7 @@ class Dataset(object):
         for s in self.syn_text + self.sem_text:
             for w in s:
                 vocab.add(w)
-        return sorted(list(vocab))
+        return [''] + sorted(list(vocab))
 
     def get_charset(self):
         charset = set()
@@ -136,7 +161,7 @@ class Dataset(object):
             for w in s:
                 for c in w:
                     charset.add(c)
-        return ['', ' '] + sorted(list(charset))
+        return [''] + sorted(list(charset))
 
     def get_pos_label_set(self):
         pos_label_set = set()
@@ -174,19 +199,31 @@ class Dataset(object):
                 text.append(' '.join(s))
             return text
 
-    def char2int(self, c):
-        return self.char_map.get(c, self.n_char)
+    def char_to_int(self, c):
+        return self.char_map.get(c, 0)
 
-    def word2int(self, w):
-        return self.word_map.get(w, self.n_word)
+    def int_to_char(self, i):
+        return self.char_list[i]
 
-    def pos2int(self, p):
-        return self.pos_map.get(p, self.n_pos)
+    def word_to_int(self, w):
+        return self.word_map.get(w, 0)
 
-    def parselabel2int(self, l):
-        return self.parse_label_map.get(l, self.n_parse_label)
+    def int_to_word(self, i):
+        return self.word_list[i]
 
-    def get_padded_seqs(self, data_type, max_token=None, max_subtoken=None, as_char=False, verbose=True):
+    def pos_label_to_int(self, p):
+        return self.pos_map[p]
+
+    def int_to_pos_label(self, i):
+        return self.pos_list[i]
+
+    def parse_label_to_int(self, l):
+        return self.parse_label_map[l]
+
+    def int_to_parse_label(self, i):
+        return self.parse_label_list[i]
+
+    def symbols_to_padded_seqs(self, data_type, max_token=None, max_subtoken=None, as_char=False, verbose=True):
         if data_type.lower().startswith('syn'):
             src = 'syn_text'
         elif data_type.lower().startswith('sem'):
@@ -199,19 +236,19 @@ class Dataset(object):
             if as_char:
                 f = lambda x: [y[:max_subtoken] for y in x]
             else:
-                f = lambda x: list(map(self.char2int, x[:max_subtoken]))
+                f = lambda x: list(map(self.char_to_int, x[:max_subtoken]))
         elif data_type.lower().endswith('word'):
             as_words = True
             if as_char:
                 f = lambda x: x
             else:
-                f = self.word2int
+                f = self.word_to_int
         elif data_type.lower().endswith('char'):
             as_words = False
             if as_char:
                 f = lambda x: x
             else:
-                f = self.char2int
+                f = self.char_to_int
         else:
             as_words = True
             if data_type.lower().endswith('pos_label'):
@@ -219,13 +256,13 @@ class Dataset(object):
                 if as_char:
                     f = lambda x: x
                 else:
-                    f = self.pos2int
+                    f = self.pos_label_to_int
             elif data_type.lower().endswith('parse_label'):
                 src = 'parse_label'
                 if as_char:
                     f = lambda x: x
                 else:
-                    f = self.parselabel2int
+                    f = self.parse_label_to_int
             else:
                 raise ValueError('Unrecognized data_type "%s".' % data_type)
 
@@ -233,7 +270,6 @@ class Dataset(object):
 
         out = []
         mask = []
-        n = len(data)
         for i, s in enumerate(data):
             # if verbose and i == 0 or i % 1000 == 999 or i == n-1:
             #     stderr('\r%d/%d' %(i+1, n))
@@ -254,13 +290,49 @@ class Dataset(object):
 
         return out, mask
 
+    def padded_seqs_to_symbols(self, data, data_type, mask=None, as_list=True):
+        if data_type.lower().endswith('char_tokenized') or data_type.lower().endswith('char'):
+            f = np.vectorize(self.int_to_char, otypes=[np.str])
+        elif data_type.lower().endswith('word'):
+            f = np.vectorize(self.int_to_word, otypes=[np.str])
+        else:
+            if data_type.lower().endswith('pos_label'):
+                f = np.vectorize(self.int_to_pos_label, otypes=[np.str])
+            elif data_type.lower().endswith('parse_label'):
+                f = np.vectorize(self.int_to_parse_label, otypes=[np.str])
+            else:
+                raise ValueError('Unrecognized data_type "%s".' % data_type)
+
+        data = f(data)
+        if mask is not None:
+            data = np.where(mask, data, np.zeros_like(data).astype('str'))
+        data = data.tolist()
+        out = []
+        for s in data:
+            newline = []
+            for w in s:
+                if data_type.lower().endswith('char_tokenized'):
+                    w = ''.join(w)
+                if w != '':
+                    newline.append(w)
+            if as_list:
+                s = newline
+            else:
+                s = ' '.join(newline)
+            out.append(s)
+
+        if not as_list:
+            out = '\n'.join(out)
+
+        return out
+
     def cache_data(self):
-        self.cache['syn_text'], self.cache['syn_text_mask'] = self.get_padded_seqs(
+        self.cache['syn_text'], self.cache['syn_text_mask'] = self.symbols_to_padded_seqs(
             'syn_text_char_tokenized',
             as_char=False
         )
-        self.cache['pos_label'], _ = self.get_padded_seqs('pos_label')
-        self.cache['parse_label'], _ = self.get_padded_seqs('parse_label')
+        self.cache['pos_label'], _ = self.symbols_to_padded_seqs('pos_label')
+        self.cache['parse_label'], _ = self.symbols_to_padded_seqs('parse_label')
 
     def get_data_feed(
             self,
@@ -299,6 +371,40 @@ class Dataset(object):
 
     def get_n_minibatch(self, minibatch_size):
         return math.ceil(self.get_n() / minibatch_size)
+
+    def pretty_print_syn_predictions(
+            self,
+            text,
+            parse_true,
+            parse_pred,
+            pos_true,
+            pos_pred,
+            mask=None
+    ):
+        if mask is not None:
+            char_mask = mask
+            word_mask = mask.any(axis=-1)
+        else:
+            char_mask = None
+            word_mask = None
+
+        text = self.padded_seqs_to_symbols(text, 'char_tokenized', mask=char_mask)
+        pos_true = self.padded_seqs_to_symbols(pos_true, 'pos_label', mask=word_mask)
+        pos_pred = self.padded_seqs_to_symbols(pos_pred, 'pos_label', mask=word_mask)
+        parse_true = self.padded_seqs_to_symbols(parse_true, 'parse_label', mask=word_mask)
+        parse_pred = self.padded_seqs_to_symbols(parse_pred, 'parse_label', mask=word_mask)
+
+        for i in range(len(text)):
+            text[i] = ['Word:'] + text[i]
+            pos_true[i] = ['Parse True:'] + pos_true[i]
+            pos_pred[i] = ['Parse Pred:'] + pos_pred[i]
+            parse_true[i] = ['POS True:'] + parse_true[i]
+            parse_pred[i] = ['POS Pred:'] + parse_pred[i]
+
+        return print_interlinearized((parse_true, parse_pred, pos_true, pos_pred, text))
+
+
+
 
 
 

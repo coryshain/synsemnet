@@ -333,7 +333,7 @@ class SynSemNet(object):
     def _initialize_outputs(self):
         with self.sess.as_default():
             with self.sess.graph.as_default():
-                self.pos_label_prediction_from_syn = DenseLayer(
+                self.pos_label_logits_from_syn = DenseLayer(
                     training=self.training,
                     units=self.n_pos,
                     kernel_initializer='he_normal_initializer',
@@ -341,7 +341,7 @@ class SynSemNet(object):
                     session=self.sess,
                     name='pos_label_prediction_from_syn'
                 )(self.synactic_encoding)
-                self.parse_label_prediction_from_syn = DenseLayer(
+                self.parse_label_logits_from_syn = DenseLayer(
                     training=self.training,
                     units=self.n_parse_label,
                     kernel_initializer='he_normal_initializer',
@@ -349,8 +349,10 @@ class SynSemNet(object):
                     session=self.sess,
                     name='parse_label_prediction_from_syn'
                 )(self.synactic_encoding)
+                self.pos_label_prediction_from_syn = tf.argmax(self.pos_label_logits_from_syn, axis=2)
+                self.parse_label_prediction_from_syn = tf.argmax(self.parse_label_logits_from_syn, axis=2)
 
-                self.pos_label_prediction_from_sem = DenseLayer(
+                self.pos_label_logits_from_sem = DenseLayer(
                     training=self.training,
                     units=self.n_pos,
                     kernel_initializer='he_normal_initializer',
@@ -358,7 +360,7 @@ class SynSemNet(object):
                     session=self.sess,
                     name='pos_label_prediction_from_sem'
                 )(self.semantic_encoding)
-                self.parse_label_prediction_from_sem = DenseLayer(
+                self.parse_label_logits_from_sem = DenseLayer(
                     training=self.training,
                     units=self.n_parse_label,
                     kernel_initializer='he_normal_initializer',
@@ -366,33 +368,35 @@ class SynSemNet(object):
                     session=self.sess,
                     name='parse_label_prediction_from_sem'
                 )(self.semantic_encoding)
+                self.pos_label_prediction_from_sem = tf.argmax(self.pos_label_logits_from_sem, axis=2)
+                self.parse_label_prediction_from_sem = tf.argmax(self.parse_label_logits_from_sem, axis=2)
 
     def _initialize_objective(self):
         with self.sess.as_default():
             with self.sess.graph.as_default():
                 self.syn_pos_loss = tf.losses.sparse_softmax_cross_entropy(
                     self.pos_label,
-                    self.pos_label_prediction_from_syn,
+                    self.pos_label_logits_from_syn,
                     weights=self.word_mask
                 )
                 self.sem_pos_loss = tf.losses.sparse_softmax_cross_entropy(
                     self.pos_label,
-                    self.pos_label_prediction_from_sem,
+                    self.pos_label_logits_from_sem,
                     weights=self.word_mask
                 )
 
                 self.syn_parse_loss = tf.losses.sparse_softmax_cross_entropy(
                     self.parse_label,
-                    self.parse_label_prediction_from_syn,
+                    self.parse_label_logits_from_syn,
                     weights=self.word_mask
                 )
                 self.sem_parse_loss = tf.losses.sparse_softmax_cross_entropy(
                     self.pos_label,
-                    self.parse_label_prediction_from_sem,
+                    self.parse_label_logits_from_sem,
                     weights=self.word_mask
                 )
 
-                self.loss = self.syn_pos_loss
+                self.loss = self.syn_pos_loss + self.syn_parse_loss
 
                 self.optim = self._initialize_optimizer(self.optim_name)
                 self.train_op = self.optim.minimize(self.loss, global_step=self.global_batch_step)
@@ -733,14 +737,32 @@ class SynSemNet(object):
                                 self.parse_label: parse_label_batch
                             }
 
-                            _, loss_cur = self.sess.run([self.train_op, self.loss], feed_dict=fd_minibatch)
-
-                            loss += loss_cur
+                            _, syn_parse_loss_cur, syn_pos_loss_cur, parse_pred_batch, pos_pred_batch = self.sess.run(
+                                [
+                                    self.train_op,
+                                    self.syn_parse_loss,
+                                    self.syn_pos_loss,
+                                    self.parse_label_prediction_from_syn,
+                                    self.pos_label_prediction_from_syn
+                                ],
+                                feed_dict=fd_minibatch
+                            )
 
                             if verbose:
-                                pb.update(i+1, values=[('loss', loss_cur)])
+                                pb.update(i+1, values=[('parse', syn_parse_loss_cur), ('pos', syn_pos_loss_cur)])
 
-                        loss /= n_minibatch
+                        samples = train_data.pretty_print_syn_predictions(
+                            syn_text_batch[:10],
+                            parse_label_batch[:10],
+                            parse_pred_batch[:10],
+                            pos_label_batch[:10],
+                            pos_pred_batch[:10],
+                            mask=syn_text_mask_batch[:10]
+                        )
+
+                        stderr('Sample training instances:\n\n' + samples)
+
+                        self.save()
 
                         if verbose:
                             t1_iter = time.time()
