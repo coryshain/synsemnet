@@ -35,14 +35,21 @@ if __name__ == '__main__':
     else:
         stderr('Reading and processing data...\n')
         train_data = Dataset(p.parsing_train_data_path, p.sts_train_data_path)
-        train_data.cache_data()
+        train_data.cache_data(factor_parse_labels=p['factor_parse_labels'])
         with open('saved_data.obj', 'wb') as f:
             pickle.dump(train_data, f)
 
+    char_set = train_data.get_char_set()
+    pos_label_set = train_data.get_pos_label_set()
+    if p['factor_parse_labels']:
+        parse_label_set = train_data.get_parse_ancestor_set()
+    else:
+        parse_label_set = train_data.get_parse_label_set()
+
     m = SynSemNet(
-        train_data.get_charset(),
-        train_data.get_pos_label_set(),
-        train_data.get_parse_label_set(),
+        char_set,
+        pos_label_set,
+        parse_label_set,
         **kwargs
     )
 

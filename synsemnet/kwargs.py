@@ -353,6 +353,12 @@ SYN_SEM_NET_KWARGS = [
         [int, None],
         "Implement internal encoder layers as residual layers with **resnet_n_layers_inner** internal layers each. If ``None``, do not use residual layers.",
     ),
+    Kwarg(
+        'factor_parse_labels',
+        True,
+        bool,
+        "Whether to factor parse labels into their (numeric) depth and (categorical) ancestor components and predict each separately. If ``False``, depth and category information is merged and treated as atomic.",
+    ),
 
     # Numeric settings
     Kwarg(

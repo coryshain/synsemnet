@@ -75,6 +75,7 @@ def print_interlinearized(lines, max_tokens=20):
         for w in zip(*l1):
             if n_tok == max_tokens:
                 out[-1].append([[] for _ in range(len(w))])
+                n_tok = 0
             if len(out[-1]) == 0:
                 out[-1].append([[] for _ in range(len(w))])
             max_len = max([len(x) for x in w])
@@ -105,20 +106,23 @@ class Dataset(object):
 
         self.sem_text = [[]]
 
-        self.char_list = self.get_charset()
+        self.char_list = self.get_char_set()
         self.word_list = self.get_vocabulary()
         self.pos_list = self.get_pos_label_set()
         self.parse_label_list = self.get_parse_label_set()
+        self.parse_ancestor_list = self.get_parse_ancestor_set()
 
         self.char_map = {c: i for i, c in enumerate(self.char_list)}
         self.word_map = {w: i for i, w in enumerate(self.word_list)}
         self.pos_map = {p: i for i, p in enumerate(self.pos_list)}
         self.parse_label_map = {l: i for i, l in enumerate(self.parse_label_list)}
+        self.parse_ancestor_map = {l: i for i, l in enumerate(self.parse_ancestor_list)}
 
         self.n_char = len(self.char_map)
         self.n_word = len(self.word_map)
         self.n_pos = len(self.pos_map)
         self.n_parse_label = len(self.parse_label_map)
+        self.n_parse_ancestor = len(self.parse_ancestor_map)
 
         self.cache = {}
 
@@ -155,7 +159,7 @@ class Dataset(object):
                 vocab.add(w)
         return [''] + sorted(list(vocab))
 
-    def get_charset(self):
+    def get_char_set(self):
         charset = set()
         for s in self.syn_text + self.sem_text:
             for w in s:
@@ -176,6 +180,13 @@ class Dataset(object):
             for l in s:
                 parse_label_set.add(l)
         return sorted(list(parse_label_set))
+
+    def get_parse_ancestor_set(self):
+        parse_ancestor_set = set()
+        for s in self.parse_labels:
+            for l in s:
+                parse_ancestor_set.add(l.split('_')[-1])
+        return sorted(list(parse_ancestor_set))
 
     def get_seqs(self, src='syn_text', as_words=True):
         if src.lower() == 'syn_text':
@@ -223,6 +234,23 @@ class Dataset(object):
     def int_to_parse_label(self, i):
         return self.parse_label_list[i]
 
+    def parse_ancestor_to_int(self, a):
+        return self.parse_ancestor_map[a.split('_')[-1]]
+
+    def int_to_parse_ancestor(self, i):
+        return self.parse_ancestor_list[i]
+
+    def parse_depth_to_int(self, d):
+        return 0 if d == 'NONE' else int(d.split('_')[0])
+
+    def int_to_parse_depth(self, i):
+        return str(i)
+
+    def ints_to_parse_joint(self, i_depth, i_ancestor):
+        depth = self.int_to_parse_depth(i_depth)
+        ancestor = self.int_to_parse_ancestor(i_ancestor)
+        return ancestor if ancestor == 'NONE' else '_'.join([depth, ancestor])
+
     def symbols_to_padded_seqs(self, data_type, max_token=None, max_subtoken=None, as_char=False, verbose=True):
         if data_type.lower().startswith('syn'):
             src = 'syn_text'
@@ -263,6 +291,18 @@ class Dataset(object):
                     f = lambda x: x
                 else:
                     f = self.parse_label_to_int
+            elif data_type.lower().endswith('parse_depth'):
+                src = 'parse_label'
+                if as_char:
+                    f = lambda x: x if x == 'NONE' else x.split('_')[0]
+                else:
+                    f = self.parse_depth_to_int
+            elif data_type.lower().endswith('parse_ancestor'):
+                src = 'parse_label'
+                if as_char:
+                    f = lambda x: x.split('_')[-1]
+                else:
+                    f = self.parse_ancestor_to_int
             else:
                 raise ValueError('Unrecognized data_type "%s".' % data_type)
 
@@ -285,7 +325,7 @@ class Dataset(object):
 
         out = pad_sequence(out, value=0)
         if not as_char:
-            out = out.astype(np.uint8)
+            out = out.astype('int')
         mask = pad_sequence(mask)
 
         return out, mask
@@ -300,10 +340,19 @@ class Dataset(object):
                 f = np.vectorize(self.int_to_pos_label, otypes=[np.str])
             elif data_type.lower().endswith('parse_label'):
                 f = np.vectorize(self.int_to_parse_label, otypes=[np.str])
+            elif data_type.lower().endswith('parse_depth'):
+                f = np.vectorize(self.int_to_parse_depth, otypes=[np.str])
+            elif data_type.lower().endswith('parse_ancestor'):
+                f = np.vectorize(self.int_to_parse_ancestor, otypes=[np.str])
+            elif data_type.lower().endswith('parse_joint'):
+                f = np.vectorize(self.ints_to_parse_joint, otypes=[np.str])
             else:
                 raise ValueError('Unrecognized data_type "%s".' % data_type)
 
-        data = f(data)
+        if data_type.lower().endswith('parse_joint'):
+            data = f(*data)
+        else:
+            data = f(data)
         if mask is not None:
             data = np.where(mask, data, np.zeros_like(data).astype('str'))
         data = data.tolist()
@@ -326,13 +375,19 @@ class Dataset(object):
 
         return out
 
-    def cache_data(self):
+    def cache_data(self, factor_parse_labels=True):
         self.cache['syn_text'], self.cache['syn_text_mask'] = self.symbols_to_padded_seqs(
             'syn_text_char_tokenized',
             as_char=False
         )
         self.cache['pos_label'], _ = self.symbols_to_padded_seqs('pos_label')
-        self.cache['parse_label'], _ = self.symbols_to_padded_seqs('parse_label')
+        if factor_parse_labels:
+            self.cache['parse_depth'], _ = self.symbols_to_padded_seqs('parse_depth')
+            self.cache['parse_label'], _ = self.symbols_to_padded_seqs('parse_ancestor')
+        else:
+            self.cache['parse_depth'] = None
+            self.cache['parse_label'], _ = self.symbols_to_padded_seqs('parse_label')
+
 
     def get_data_feed(
             self,
@@ -343,6 +398,8 @@ class Dataset(object):
         syn_text_mask = self.cache['syn_text_mask']
         pos_label = self.cache['pos_label']
         parse_label = self.cache['parse_label']
+        parse_depth = self.cache['parse_depth']
+
         n = self.get_n()
 
         i = 0
@@ -360,6 +417,7 @@ class Dataset(object):
                 'syn_text_mask': syn_text_mask[indices],
                 'pos_label': pos_label[indices],
                 'parse_label': parse_label[indices],
+                'parse_depth': None if parse_depth is None else parse_depth[indices],
             }
 
             yield out
@@ -374,11 +432,13 @@ class Dataset(object):
 
     def pretty_print_syn_predictions(
             self,
-            text,
-            parse_true,
-            parse_pred,
-            pos_true,
-            pos_pred,
+            text=None,
+            pos_label_true=None,
+            pos_label_pred=None,
+            parse_label_true=None,
+            parse_label_pred=None,
+            parse_depth_true=None,
+            parse_depth_pred=None,
             mask=None
     ):
         if mask is not None:
@@ -388,20 +448,48 @@ class Dataset(object):
             char_mask = None
             word_mask = None
 
-        text = self.padded_seqs_to_symbols(text, 'char_tokenized', mask=char_mask)
-        pos_true = self.padded_seqs_to_symbols(pos_true, 'pos_label', mask=word_mask)
-        pos_pred = self.padded_seqs_to_symbols(pos_pred, 'pos_label', mask=word_mask)
-        parse_true = self.padded_seqs_to_symbols(parse_true, 'parse_label', mask=word_mask)
-        parse_pred = self.padded_seqs_to_symbols(parse_pred, 'parse_label', mask=word_mask)
+        to_interlinearize = []
+
+        if parse_depth_true is None:
+            if parse_label_true is not None:
+                parse_label_true = self.padded_seqs_to_symbols(parse_label_true, 'parse_label', mask=word_mask)
+                to_interlinearize.append(parse_label_true)
+        else:
+            if parse_label_true is not None:
+                parse_label_true = self.padded_seqs_to_symbols([parse_depth_true, parse_label_true], 'parse_joint', mask=word_mask)
+                to_interlinearize.append(parse_label_true)
+        if parse_depth_pred is None:
+            if parse_label_pred is not None:
+                parse_label_pred = self.padded_seqs_to_symbols(parse_label_pred, 'parse_label', mask=word_mask)
+                to_interlinearize.append(parse_label_pred)
+        else:
+            if parse_label_pred is not None:
+                parse_label_pred = self.padded_seqs_to_symbols([parse_depth_pred, parse_label_pred], 'parse_joint', mask=word_mask)
+                to_interlinearize.append(parse_label_pred)
+        if pos_label_true is not None:
+            pos_label_true = self.padded_seqs_to_symbols(pos_label_true, 'pos_label', mask=word_mask)
+            to_interlinearize.append(pos_label_true)
+        if pos_label_pred is not None:
+            pos_label_pred = self.padded_seqs_to_symbols(pos_label_pred, 'pos_label', mask=word_mask)
+            to_interlinearize.append(pos_label_pred)
+        if text is not None:
+            text = self.padded_seqs_to_symbols(text, 'char_tokenized', mask=char_mask)
+            to_interlinearize.append(text)
+
 
         for i in range(len(text)):
-            text[i] = ['Word:'] + text[i]
-            pos_true[i] = ['Parse True:'] + pos_true[i]
-            pos_pred[i] = ['Parse Pred:'] + pos_pred[i]
-            parse_true[i] = ['POS True:'] + parse_true[i]
-            parse_pred[i] = ['POS Pred:'] + parse_pred[i]
+            if parse_label_true is not None:
+                parse_label_true[i] = ['Parse True:'] + parse_label_true[i]
+            if parse_label_pred is not None:
+                parse_label_pred[i] = ['Parse Pred:'] + parse_label_pred[i]
+            if pos_label_true is not None:
+                pos_label_true[i] = ['POS True:'] + pos_label_true[i]
+            if pos_label_pred is not None:
+                pos_label_pred[i] = ['POS Pred:'] + pos_label_pred[i]
+            if text is not None:
+                text[i] = ['Word:'] + text[i]
 
-        return print_interlinearized((parse_true, parse_pred, pos_true, pos_pred, text))
+        return print_interlinearized(to_interlinearize)
 
 
 

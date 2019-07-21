@@ -102,7 +102,7 @@ if __name__ == '__main__':
 
     sys.stderr.write('Converting trees into label sequence...\n')
     sys.stderr.flush()
-    exit_status = os.system(r'python2 tree2labels/dataset.py --train %s --dev %s --test %s --output %s --treebank wsj --os --root_label --encode_unaries' % (args.outdir + '/trees/wsj-train.txt', args.outdir + '/trees/wsj-dev.txt', args.outdir + '/trees/wsj-test.txt', args.outdir + '/labels'))
+    exit_status = os.system(r'python2 tree2labels/dataset.py --train %s --dev %s --test %s --output %s --treebank wsj --os' % (args.outdir + '/trees/wsj-train.txt', args.outdir + '/trees/wsj-dev.txt', args.outdir + '/trees/wsj-test.txt', args.outdir + '/labels'))
 
     if exit_status == 0:
         sys.stderr.write('Data build complete. Labels for training can be found in %s.\n' % (args.outdir + '/labels/'))

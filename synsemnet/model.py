@@ -125,7 +125,7 @@ class SynSemNet(object):
 
         self._initialize_inputs()
         self.word_embedding = self._initialize_word_embedding()
-        self.synactic_encoding = self._initialize_encoding(
+        self.syntactic_encoding = self._initialize_encoding(
             self.word_embedding,
             self.syn_n_layers,
             self.syn_encoder_units,
@@ -189,7 +189,10 @@ class SynSemNet(object):
                 #     )
 
                 self.pos_label = tf.placeholder(self.INT_TF, shape=[None, None], name='pos_label')
+
                 self.parse_label = tf.placeholder(self.INT_TF, shape=[None, None], name='parse_label')
+                if self.factor_parse_labels:
+                    self.parse_depth = tf.placeholder(self.FLOAT_TF, shape=[None, None], name='parse_depth')
 
                 self.task = tf.placeholder(self.INT_TF, shape=[None], name='task')
 
@@ -333,70 +336,83 @@ class SynSemNet(object):
     def _initialize_outputs(self):
         with self.sess.as_default():
             with self.sess.graph.as_default():
-                self.pos_label_logits_from_syn = DenseLayer(
-                    training=self.training,
-                    units=self.n_pos,
-                    kernel_initializer='he_normal_initializer',
-                    activation=None,
-                    session=self.sess,
-                    name='pos_label_prediction_from_syn'
-                )(self.synactic_encoding)
-                self.parse_label_logits_from_syn = DenseLayer(
-                    training=self.training,
-                    units=self.n_parse_label,
-                    kernel_initializer='he_normal_initializer',
-                    activation=None,
-                    session=self.sess,
-                    name='parse_label_prediction_from_syn'
-                )(self.synactic_encoding)
-                self.pos_label_prediction_from_syn = tf.argmax(self.pos_label_logits_from_syn, axis=2)
-                self.parse_label_prediction_from_syn = tf.argmax(self.parse_label_logits_from_syn, axis=2)
 
-                self.pos_label_logits_from_sem = DenseLayer(
+                units = self.n_pos + self.n_parse_label + self.factor_parse_labels
+
+                self.logits_from_syn = DenseLayer(
                     training=self.training,
-                    units=self.n_pos,
+                    units=units,
                     kernel_initializer='he_normal_initializer',
                     activation=None,
                     session=self.sess,
-                    name='pos_label_prediction_from_sem'
-                )(self.semantic_encoding)
-                self.parse_label_logits_from_sem = DenseLayer(
+                    name='logits_from_syn'
+                )(self.syntactic_encoding)
+
+                self.pos_label_logits_from_syn = self.logits_from_syn[..., :self.n_pos]
+                self.pos_label_prediction_from_syn = tf.argmax(self.pos_label_logits_from_syn, axis=2)
+                self.parse_label_logits_from_syn = self.logits_from_syn[..., self.n_pos:self.n_pos+self.n_parse_label]
+                self.parse_label_prediction_from_syn = tf.argmax(self.parse_label_logits_from_syn, axis=2)
+                if self.factor_parse_labels:
+                    self.parse_depth_logits_from_syn = self.logits_from_syn[..., self.n_pos+self.n_parse_label]
+                    self.parse_depth_prediction_from_syn = tf.cast(tf.round(self.parse_depth_logits_from_syn), dtype=self.INT_TF)
+
+                self.logits_from_sem = DenseLayer(
                     training=self.training,
-                    units=self.n_parse_label,
+                    units=units,
                     kernel_initializer='he_normal_initializer',
                     activation=None,
                     session=self.sess,
-                    name='parse_label_prediction_from_sem'
+                    name='logits_from_sem'
                 )(self.semantic_encoding)
+
+                self.pos_label_logits_from_sem = self.logits_from_sem[..., :self.n_pos]
                 self.pos_label_prediction_from_sem = tf.argmax(self.pos_label_logits_from_sem, axis=2)
+                self.parse_label_logits_from_sem = self.logits_from_sem[..., self.n_pos:self.n_pos + self.n_parse_label]
                 self.parse_label_prediction_from_sem = tf.argmax(self.parse_label_logits_from_sem, axis=2)
+                if self.factor_parse_labels:
+                    self.parse_depth_logits_from_sem = self.logits_from_sem[..., self.n_pos + self.n_parse_label]
+                    self.parse_depth_prediction_from_sem = tf.cast(tf.round(self.parse_depth_logits_from_sem), dtype=self.INT_TF)
+                    
 
     def _initialize_objective(self):
         with self.sess.as_default():
             with self.sess.graph.as_default():
-                self.syn_pos_loss = tf.losses.sparse_softmax_cross_entropy(
+                self.syn_pos_label_loss = tf.losses.sparse_softmax_cross_entropy(
                     self.pos_label,
                     self.pos_label_logits_from_syn,
                     weights=self.word_mask
                 )
-                self.sem_pos_loss = tf.losses.sparse_softmax_cross_entropy(
-                    self.pos_label,
-                    self.pos_label_logits_from_sem,
-                    weights=self.word_mask
-                )
-
-                self.syn_parse_loss = tf.losses.sparse_softmax_cross_entropy(
+                self.syn_parse_label_loss = tf.losses.sparse_softmax_cross_entropy(
                     self.parse_label,
                     self.parse_label_logits_from_syn,
                     weights=self.word_mask
                 )
-                self.sem_parse_loss = tf.losses.sparse_softmax_cross_entropy(
+
+                self.sem_pos_label_loss = tf.losses.sparse_softmax_cross_entropy(
+                    self.pos_label,
+                    self.pos_label_logits_from_sem,
+                    weights=self.word_mask
+                )
+                self.sem_parse_label_loss = tf.losses.sparse_softmax_cross_entropy(
                     self.pos_label,
                     self.parse_label_logits_from_sem,
                     weights=self.word_mask
                 )
 
-                self.loss = self.syn_pos_loss + self.syn_parse_loss
+                self.loss = self.syn_pos_label_loss + self.syn_parse_label_loss
+
+                if self.factor_parse_labels:
+                    self.syn_parse_depth_loss = tf.losses.mean_squared_error(
+                        self.parse_depth,
+                        self.parse_depth_logits_from_syn,
+                        weights=self.word_mask
+                    )
+                    self.sem_parse_depth_loss = tf.losses.mean_squared_error(
+                        self.parse_depth,
+                        self.parse_depth_logits_from_sem,
+                        weights=self.word_mask
+                    )
+                    self.loss += self.syn_parse_depth_loss
 
                 self.optim = self._initialize_optimizer(self.optim_name)
                 self.train_op = self.optim.minimize(self.loss, global_step=self.global_batch_step)
@@ -720,7 +736,10 @@ class SynSemNet(object):
                             stderr('\n')
                             pb = tf.contrib.keras.utils.Progbar(n_minibatch)
 
-                        data_feed_train = train_data.get_data_feed(minibatch_size=self.minibatch_size, randomize=True)
+                        data_feed_train = train_data.get_data_feed(
+                            minibatch_size=self.minibatch_size,
+                            randomize=True
+                        )
 
                         loss = 0.
 
@@ -729,6 +748,10 @@ class SynSemNet(object):
                             syn_text_mask_batch = batch['syn_text_mask']
                             pos_label_batch = batch['pos_label']
                             parse_label_batch = batch['parse_label']
+                            if self.factor_parse_labels:
+                                parse_depth_batch = batch['parse_depth']
+                            else:
+                                parse_depth_batch = None
 
                             fd_minibatch = {
                                 self.characters: syn_text_batch,
@@ -736,27 +759,68 @@ class SynSemNet(object):
                                 self.pos_label: pos_label_batch,
                                 self.parse_label: parse_label_batch
                             }
+                            if self.factor_parse_labels:
+                                fd_minibatch[self.parse_depth] = parse_depth_batch
 
-                            _, syn_parse_loss_cur, syn_pos_loss_cur, parse_pred_batch, pos_pred_batch = self.sess.run(
-                                [
-                                    self.train_op,
-                                    self.syn_parse_loss,
-                                    self.syn_pos_loss,
-                                    self.parse_label_prediction_from_syn,
-                                    self.pos_label_prediction_from_syn
-                                ],
+
+                            to_run = [
+                                self.train_op,
+                                self.syn_parse_label_loss,
+                                self.syn_pos_label_loss,
+                                self.pos_label_prediction_from_syn,
+                                self.parse_label_prediction_from_syn
+                            ]
+                            to_run_names = [
+                                'train_op',
+                                'syn_parse_label_loss',
+                                'syn_pos_label_loss',
+                                'pos_label_prediction_from_syn',
+                                'parse_label_prediction_from_syn'
+                            ]
+                            if self.factor_parse_labels:
+                                to_run += [self.parse_depth_prediction_from_syn, self.syn_parse_depth_loss]
+                                to_run_names += ['parse_depth_prediction_from_syn', 'syn_parse_depth_loss']
+
+                            out = self.sess.run(
+                                to_run,
                                 feed_dict=fd_minibatch
                             )
 
+                            info_dict = {}
+                            for j, x in enumerate(out):
+                                info_dict[to_run_names[j]] = x
+
+                            # if i % 100 == 0:
+                            #     print(
+                            #         train_data.pretty_print_syn_predictions(
+                            #             text=syn_text_batch[:10],
+                            #             pos_label_true=pos_label_batch[:10],
+                            #             pos_label_pred=info_dict['pos_label_prediction_from_syn'][:10],
+                            #             parse_label_true=parse_label_batch[:10],
+                            #             parse_label_pred=info_dict['parse_label_prediction_from_syn'][:10],
+                            #             parse_depth_true=parse_depth_batch[:10],
+                            #             parse_depth_pred=info_dict['parse_depth_prediction_from_syn'][:10] if self.factor_parse_labels else None,
+                            #             mask=syn_text_mask_batch[:10]
+                            #         )
+                            #     )
+
                             if verbose:
-                                pb.update(i+1, values=[('parse', syn_parse_loss_cur), ('pos', syn_pos_loss_cur)])
+                                values = [
+                                    ('pos', info_dict['syn_pos_label_loss']),
+                                    ('label', info_dict['syn_parse_label_loss'])
+                                ]
+                                if self.factor_parse_labels:
+                                    values.append(('depth', info_dict['syn_parse_depth_loss']),)
+                                pb.update(i+1, values=values)
 
                         samples = train_data.pretty_print_syn_predictions(
-                            syn_text_batch[:10],
-                            parse_label_batch[:10],
-                            parse_pred_batch[:10],
-                            pos_label_batch[:10],
-                            pos_pred_batch[:10],
+                            text=syn_text_batch[:10],
+                            pos_label_true=pos_label_batch[:10],
+                            pos_label_pred=info_dict['pos_label_prediction_from_syn'][:10],
+                            parse_label_true=parse_label_batch[:10],
+                            parse_label_pred=info_dict['parse_label_prediction_from_syn'][:10],
+                            parse_depth_true=parse_depth_batch[:10],
+                            parse_depth_pred=info_dict['parse_depth_prediction_from_syn'][:10] if self.factor_parse_labels else None,
                             mask=syn_text_mask_batch[:10]
                         )
 
