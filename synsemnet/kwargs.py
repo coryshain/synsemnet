@@ -273,6 +273,18 @@ SYN_SEM_NET_KWARGS = [
     ),
 
     # Data settings
+    Kwarg(
+        'os',
+        False,
+        bool,
+        "Whether to use data containing sequence boundary tokens (``'-BOS-'``, ``'-EOS-'``)."
+    ),
+    Kwarg(
+        'root',
+        False,
+        bool,
+        "Whether to use data containing a designated ``ROOT`` depth label. Incompatible with **factor_parse_labels** because depth can no longer be treated as numeric."
+    ),
 
     # Model settings
     Kwarg(

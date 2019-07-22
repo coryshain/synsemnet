@@ -39,7 +39,9 @@ if __name__ == '__main__':
     Builds WSJ dataset into appropriate format for use with SynSemNet.
     ''')
     argparser.add_argument('dir_path', help='Path to Penn Treebank source directory')
-    argparser.add_argument('-o', '--outdir', default='./wsj/', help='')
+    argparser.add_argument('-o', '--outdir', default='./wsj/', help='Path to output directory.')
+    argparser.add_argument('-s', '--os', action='store_true', help='Whether to added sequence boundary tokens (-BOS-, -EOS-) to sentences.')
+    argparser.add_argument('-r', '--root', action='store_true', help='Whether to use a designated root token.')
     args = argparser.parse_args()
 
     if not os.path.exists('tree2labels'):
@@ -102,7 +104,24 @@ if __name__ == '__main__':
 
     sys.stderr.write('Converting trees into label sequence...\n')
     sys.stderr.flush()
-    exit_status = os.system(r'python2 tree2labels/dataset.py --train %s --dev %s --test %s --output %s --treebank wsj --os' % (args.outdir + '/trees/wsj-train.txt', args.outdir + '/trees/wsj-dev.txt', args.outdir + '/trees/wsj-test.txt', args.outdir + '/labels'))
+
+    out_path = args.outdir + '/labels'
+    train_path = args.outdir + '/trees/wsj-train.txt'
+    dev_path = args.outdir + '/trees/wsj-dev.txt'
+    test_path = args.outdir + '/trees/wsj-test.txt'
+
+    if args.os:
+        seq_bounds = '--os'
+        out_path += '_os'
+    else:
+        seq_bounds = ''
+    if args.root:
+        root = '--root_label'
+        out_path += '_root'
+    else:
+        root = ''
+
+    exit_status = os.system(r'python2 tree2labels/dataset.py --train %s --dev %s --test %s --output %s --treebank wsj %s %s' % (train_path, dev_path, test_path, out_path, seq_bounds, root))
 
     if exit_status == 0:
         sys.stderr.write('Data build complete. Labels for training can be found in %s.\n' % (args.outdir + '/labels/'))

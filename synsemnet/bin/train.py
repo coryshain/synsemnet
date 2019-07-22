@@ -28,15 +28,22 @@ if __name__ == '__main__':
     for kwarg in SYN_SEM_NET_KWARGS:
         kwargs[kwarg.key] = p[kwarg.key]
 
-    if not args.preprocess and os.path.exists('saved_data.obj'):
-        with open('saved_data.obj', 'rb') as f:
+    data_path = 'data'
+    if p['os']:
+        data_path += '_os'
+    if p['root']:
+        data_path += '_root'
+    data_path += '.obj'
+
+    if not args.preprocess and os.path.exists(data_path):
+        with open(data_path, 'rb') as f:
             stderr('Loading data...\n')
             train_data = pickle.load(f)
     else:
         stderr('Reading and processing data...\n')
         train_data = Dataset(p.parsing_train_data_path, p.sts_train_data_path)
         train_data.cache_data(factor_parse_labels=p['factor_parse_labels'])
-        with open('saved_data.obj', 'wb') as f:
+        with open(data_path, 'wb') as f:
             pickle.dump(train_data, f)
 
     char_set = train_data.get_char_set()

@@ -241,7 +241,7 @@ class Dataset(object):
         return self.parse_ancestor_list[i]
 
     def parse_depth_to_int(self, d):
-        return 0 if d == 'NONE' else int(d.split('_')[0])
+        return 0 if d in ['NONE', '-BOS-', '-EOS-'] else int(d.split('_')[0])
 
     def int_to_parse_depth(self, i):
         return str(i)
@@ -249,7 +249,7 @@ class Dataset(object):
     def ints_to_parse_joint(self, i_depth, i_ancestor):
         depth = self.int_to_parse_depth(i_depth)
         ancestor = self.int_to_parse_ancestor(i_ancestor)
-        return ancestor if ancestor == 'NONE' else '_'.join([depth, ancestor])
+        return ancestor if ancestor in ['-BOS-', '-EOS-'] else '_'.join([depth, ancestor])
 
     def symbols_to_padded_seqs(self, data_type, max_token=None, max_subtoken=None, as_char=False, verbose=True):
         if data_type.lower().startswith('syn'):
@@ -294,7 +294,7 @@ class Dataset(object):
             elif data_type.lower().endswith('parse_depth'):
                 src = 'parse_label'
                 if as_char:
-                    f = lambda x: x if x == 'NONE' else x.split('_')[0]
+                    f = lambda x: x if x in ['NONE', '-BOS-', '-EOS-'] else x.split('_')[0]
                 else:
                     f = self.parse_depth_to_int
             elif data_type.lower().endswith('parse_ancestor'):
@@ -326,6 +326,9 @@ class Dataset(object):
         out = pad_sequence(out, value=0)
         if not as_char:
             out = out.astype('int')
+        if data_type.lower().endswith('parse_depth'):
+            final_depth = -out[..., :-1].sum(axis=-1)
+            out[..., -1] = final_depth
         mask = pad_sequence(mask)
 
         return out, mask
@@ -387,6 +390,7 @@ class Dataset(object):
         else:
             self.cache['parse_depth'] = None
             self.cache['parse_label'], _ = self.symbols_to_padded_seqs('parse_label')
+
 
 
     def get_data_feed(

@@ -164,6 +164,44 @@ def initialize_embeddings(categories, dim, default=0., name=None, session=None):
             return index_table, embedding_matrix
 
 
+def compose_lambdas(lambdas):
+    def composed_lambdas(x, **kwargs):
+        out = x
+        for l in lambdas:
+            out = l(out, **kwargs)
+        return out
+
+    return composed_lambdas
+
+
+def make_lambda(layer, session=None, use_kwargs=False):
+    session = get_session(session)
+    with session.as_default():
+        with session.graph.as_default():
+            if use_kwargs:
+                def apply_layer(x, **kwargs):
+                    return layer(x, **kwargs)
+            else:
+                def apply_layer(x, **kwargs):
+                    return layer(x)
+            return apply_layer
+
+
+def make_bi_rnn_layer(fwd, bwd, session=None):
+    session = get_session(session)
+    with session.as_default():
+        with session.graph.as_default():
+            def bi_rnn(x, fwd=fwd, bwd=bwd, mask=None):
+                f = fwd(x, mask=mask)
+                if mask is not None:
+                    mask = tf.reverse(mask, axis=[1])
+                b = bwd(tf.reverse(x, axis=[1]), mask=mask)
+                out = tf.concat([f, b], axis=-1)
+                return out
+
+            return bi_rnn
+
+
 class DenseLayer(object):
 
     def __init__(

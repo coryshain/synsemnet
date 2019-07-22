@@ -124,21 +124,116 @@ class SynSemNet(object):
                 self.outdir = './synsemnet_model/'
 
         self._initialize_inputs()
-        self.word_embedding = self._initialize_word_embedding()
-        self.syntactic_encoding = self._initialize_encoding(
-            self.word_embedding,
+
+        # Construct encoders
+        self.syntactic_character_rnn = self._initialize_rnn_encoder(
+            1,
+            [self.word_emb_dim],
+            bidirectional=self.bidirectional,
+            project_encodings=self.project_word_embeddings,
+            return_sequences=False,
+            name='syntactic_character_rnn'
+        )
+        self.semantic_character_rnn = self._initialize_rnn_encoder(
+            1,
+            [self.word_emb_dim],
+            bidirectional=self.bidirectional,
+            project_encodings=self.project_word_embeddings,
+            return_sequences=False,
+            name='semantic_character_rnn'
+        )
+        self.syntactic_word_encoder = self._initialize_rnn_encoder(
             self.syn_n_layers,
             self.syn_encoder_units,
-            name='syntactic_encoder'
+            bidirectional=self.bidirectional,
+            project_encodings=self.project_word_embeddings,
+            return_sequences=True,
+            name='syntactic_word_encoder'
         )
-        self.semantic_encoding = self._initialize_encoding(
-            self.word_embedding,
+        self.semantic_word_encoder = self._initialize_rnn_encoder(
             self.sem_n_layers,
             self.sem_encoder_units,
-            name='semantic_encoder'
+            bidirectional=self.bidirectional,
+            project_encodings=self.project_word_embeddings,
+            return_sequences=True,
+            name='semantic_word_encoder'
         )
-        self._initialize_outputs()
-        self._initialize_objective()
+
+        # Construct encodings for syntactic tasks
+        self.parsing_word_embeddings_syn = self._initialize_word_embedding(
+            self.parsing_character_embeddings_syn,
+            self.syntactic_character_rnn,
+            character_mask=self.parsing_character_mask
+        )
+        self.parsing_word_embeddings_sem = self._initialize_word_embedding(
+            self.parsing_character_embeddings_sem,
+            self.semantic_character_rnn,
+            character_mask=self.parsing_character_mask
+        )
+        self.parsing_word_encodings_syn = self._initialize_encoding(
+            self.parsing_word_embeddings_syn,
+            self.syntactic_word_encoder,
+            mask=self.parsing_word_mask
+        )
+        self.parsing_word_encodings_sem = self._initialize_encoding(
+            self.parsing_word_embeddings_sem,
+            self.semantic_word_encoder,
+            mask=self.parsing_word_mask
+        )
+
+        # Construct encodings for semantic tasks
+        self.sts_s1_word_embeddings_syn = self._initialize_word_embedding(
+            self.sts_s1_character_embeddings_syn,
+            self.syntactic_character_rnn,
+            character_mask=self.sts_s1_character_mask
+        )
+        self.sts_s1_word_embeddings_sem = self._initialize_word_embedding(
+            self.sts_s1_character_embeddings_sem,
+            self.semantic_character_rnn,
+            character_mask=self.sts_s1_character_mask
+        )
+        self.sts_s2_word_embeddings_syn = self._initialize_word_embedding(
+            self.sts_s2_character_embeddings_syn,
+            self.syntactic_character_rnn,
+            character_mask=self.sts_s2_character_mask
+        )
+        self.sts_s2_word_embeddings_sem = self._initialize_word_embedding(
+            self.sts_s2_character_embeddings_sem,
+            self.semantic_character_rnn,
+            character_mask=self.sts_s2_character_mask
+        )
+        self.sts_s1_word_encodings_syn = self._initialize_encoding(
+            self.sts_s1_word_embeddings_syn,
+            self.syntactic_word_encoder,
+            mask=self.sts_s1_word_mask
+        )
+        self.sts_s1_word_encodings_sem = self._initialize_encoding(
+            self.sts_s1_word_embeddings_sem,
+            self.semantic_word_encoder,
+            mask=self.sts_s1_word_mask
+        )
+        self.sts_s2_word_encodings_syn = self._initialize_encoding(
+            self.sts_s2_word_embeddings_syn,
+            self.syntactic_word_encoder,
+            mask=self.sts_s2_word_mask
+        )
+        self.sts_s2_word_encodings_sem = self._initialize_encoding(
+            self.sts_s2_word_embeddings_sem,
+            self.semantic_word_encoder,
+            mask=self.sts_s2_word_mask
+        )
+
+        # Construct outputs for both tasks
+        self._initialize_syntactic_outputs()
+        self._initialize_semantic_outputs()
+
+        # Construct losses
+        with self.sess.as_default():
+            with self.sess.graph.as_default():
+                self.loss = self._initialize_syntactic_objective()
+                self.loss += self._initialize_semantic_objective()
+
+        self._initialize_train_op()
         self._initialize_ema()
         self._initialize_saver()
         self._initialize_logging()
@@ -154,47 +249,23 @@ class SynSemNet(object):
         with self.sess.as_default():
             with self.sess.graph.as_default():
                 self.training = tf.placeholder_with_default(tf.constant(True, dtype=tf.bool), shape=[], name='training')
+                self.task = tf.placeholder(self.INT_TF, shape=[None], name='task')
 
-                self.characters = tf.placeholder(self.INT_TF, shape=[None, None, None], name='characters')
-                self.character_mask = tf.placeholder(self.FLOAT_TF, shape=[None, None, None], name='character_mask')
-                self.word_mask = tf.cast(tf.reduce_any(self.character_mask > 0, axis=-1), dtype=self.FLOAT_TF)
-                self.character_embedding_matrix = tf.get_variable(
-                    shape=[self.n_char+1, self.character_embedding_dim],
+                self.syntactic_character_embedding_matrix = tf.get_variable(
+                    shape=[self.n_char + 1, self.character_embedding_dim],
                     dtype=self.FLOAT_TF,
                     initializer=get_initializer('he_normal_initializer', session=self.sess),
-                    name='character_embedding_matrix'
+                    name='syntactic_character_embedding_matrix'
                 )
-                self.character_embeddings = tf.gather(self.character_embedding_matrix, self.characters)
+                self.semantic_character_embedding_matrix = tf.get_variable(
+                    shape=[self.n_char + 1, self.character_embedding_dim],
+                    dtype=self.FLOAT_TF,
+                    initializer=get_initializer('he_normal_initializer', session=self.sess),
+                    name='semantic_character_embedding_matrix'
+                )
 
-                # self.char_table, self.character_embedding_matrix = initialize_embeddings(
-                #     self.char_set,
-                #     self.character_embedding_dim,
-                #     name='character_embedding',
-                #     session=self.sess
-                # )
-                # self.char_one_hot = tf.one_hot(
-                #     self.char_table.lookup(self.characters),
-                #     self.n_char + 1,
-                #     dtype=self.FLOAT_TF
-                # )
-                # if self.optim_name == 'Nadam':  # Nadam can't handle sparse embedding lookup, so do it with matmul
-                #     self.character_embeddings = tf.matmul(
-                #         self.char_one_hot,
-                #         self.character_embedding_matrix
-                #     )
-                # else:
-                #     self.character_embeddings = tf.nn.embedding_lookup(
-                #         self.character_embedding_matrix,
-                #         self.char_table.lookup(self.characters)
-                #     )
-
-                self.pos_label = tf.placeholder(self.INT_TF, shape=[None, None], name='pos_label')
-
-                self.parse_label = tf.placeholder(self.INT_TF, shape=[None, None], name='parse_label')
-                if self.factor_parse_labels:
-                    self.parse_depth = tf.placeholder(self.FLOAT_TF, shape=[None, None], name='parse_depth')
-
-                self.task = tf.placeholder(self.INT_TF, shape=[None], name='task')
+                self._initialize_syntactic_inputs()
+                self._initialize_semantic_inputs()
 
                 self.global_step = tf.Variable(
                     0,
@@ -210,210 +281,254 @@ class SynSemNet(object):
                     name='global_batch_step'
                 )
                 self.incr_global_batch_step = tf.assign(self.global_batch_step, self.global_batch_step + 1)
-
-    def _initialize_word_embedding(self):
-        name = 'word_encoding'
+                
+    def _initialize_syntactic_inputs(self):
         with self.sess.as_default():
             with self.sess.graph.as_default():
-                encoder = self.character_embeddings
+                self.parsing_characters = tf.placeholder(self.INT_TF, shape=[None, None, None], name='parsing_characters')
+                self.parsing_character_mask = tf.placeholder(self.FLOAT_TF, shape=[None, None, None], name='parsing_character_mask')
+                self.parsing_word_mask = tf.cast(tf.reduce_any(self.parsing_character_mask > 0, axis=-1), dtype=self.FLOAT_TF)
+                self.parsing_character_embeddings_syn = tf.gather(self.syntactic_character_embedding_matrix, self.parsing_characters)
+                self.parsing_character_embeddings_sem = tf.gather(self.semantic_character_embedding_matrix, self.parsing_characters)
 
-                char_encoder_fwd = RNNLayer(
-                    training=self.training,
-                    units=int(self.word_emb_dim / 2),
-                    activation=self.activation,
-                    recurrent_activation=self.recurrent_activation,
-                    return_sequences=False,
-                    name=name + '_char_encoder_fwd',
-                    session=self.sess
-                )
-                char_encoder_bwd = RNNLayer(
-                    training=self.training,
-                    units=int(self.word_emb_dim / 2),
-                    activation=self.activation,
-                    recurrent_activation=self.recurrent_activation,
-                    return_sequences=False,
-                    name=name + '_char_encoder_bwd',
-                    session=self.sess
-                )
+                self.pos_label = tf.placeholder(self.INT_TF, shape=[None, None], name='pos_label')
 
-                B = tf.shape(encoder)[0]
-                W = tf.shape(encoder)[1]
-                C = tf.shape(encoder)[2]
-                F = encoder.shape[3]
+                self.parse_label = tf.placeholder(self.INT_TF, shape=[None, None], name='parse_label')
+                if self.factor_parse_labels:
+                    self.parse_depth = tf.placeholder(self.FLOAT_TF, shape=[None, None], name='parse_depth')
 
-                encoder_flattened = tf.reshape(encoder, [B * W, C, F])
-                mask_flattened = tf.reshape(self.character_mask, [B * W, C])
+    def _initialize_semantic_inputs(self):
+        with self.sess.as_default():
+            with self.sess.graph.as_default():
+                self.sts_s1_characters = tf.placeholder(self.INT_TF, shape=[None, None, None], name='sts_s1_characters')
+                self.sts_s1_character_mask = tf.placeholder(self.FLOAT_TF, shape=[None, None, None], name='sts_s1_character_mask')
+                self.sts_s1_word_mask = tf.cast(tf.reduce_any(self.sts_s1_character_mask > 0, axis=-1), dtype=self.FLOAT_TF)
+                self.sts_s1_character_embeddings_syn = tf.gather(self.syntactic_character_embedding_matrix, self.sts_s1_characters)
+                self.sts_s1_character_embeddings_sem = tf.gather(self.semantic_character_embedding_matrix, self.sts_s1_characters)
 
-                char_encoder_fwd = char_encoder_fwd(encoder_flattened, mask=mask_flattened)
-                char_encoder_bwd = char_encoder_bwd(tf.reverse(encoder_flattened, axis=[1]), tf.reverse(mask_flattened, axis=[1]))
+                self.sts_s2_characters = tf.placeholder(self.INT_TF, shape=[None, None, None], name='sts_s2_characters')
+                self.sts_s2_character_mask = tf.placeholder(self.FLOAT_TF, shape=[None, None, None], name='sts_s2_character_mask')
+                self.sts_s2_word_mask = tf.cast(tf.reduce_any(self.sts_s2_character_mask > 0, axis=-1), dtype=self.FLOAT_TF)
+                self.sts_s2_character_embeddings_syn = tf.gather(self.syntactic_character_embedding_matrix, self.sts_s2_characters)
+                self.sts_s2_character_embeddings_sem = tf.gather(self.semantic_character_embedding_matrix, self.sts_s2_characters)
 
-                encoder = tf.concat([char_encoder_bwd, char_encoder_fwd], axis=1)
+                # TODO: For Evan, placeholders for STS labels
 
-                encoder = tf.reshape(encoder, [B, W, self.word_emb_dim])
+    def _initialize_rnn_encoder(
+            self,
+            n_layers,
+            n_units,
+            bidirectional=True,
+            project_encodings=True,
+            return_sequences=True,
+            name='character_rnn'
+    ):
+        with self.sess.as_default():
+            with self.sess.graph.as_default():
+                out = []
+                for l in range(n_layers):
+                    if bidirectional:
+                        units_cur = int(n_units[l] / 2)
+                    else:
+                        units_cur = n_units[l]
+                    char_encoder_fwd_rnn = RNNLayer(
+                        training=self.training,
+                        units=units_cur,
+                        activation=self.activation,
+                        recurrent_activation=self.recurrent_activation,
+                        return_sequences=return_sequences,
+                        name=name + '_fwd_l%d' % l,
+                        session=self.sess
+                    )
 
-                if self.project_word_embeddings:
-                    if self.resnet_n_layers_inner:
-                        encoder = DenseResidualLayer(
+                    if bidirectional:
+                        char_encoder_bwd_rnn = RNNLayer(
                             training=self.training,
-                            units=self.word_emb_dim,
+                            units=units_cur,
+                            activation=self.activation,
+                            recurrent_activation=self.recurrent_activation,
+                            return_sequences=return_sequences,
+                            name=name + '_bwd_l%d' % l,
+                            session=self.sess
+                        )
+                        char_encoder_rnn = make_bi_rnn_layer(char_encoder_fwd_rnn, char_encoder_bwd_rnn, session=self.sess)
+                    else:
+                        char_encoder_rnn = char_encoder_fwd_rnn
+                    out.append(make_lambda(char_encoder_rnn, session=self.sess, use_kwargs=True))
+
+                if project_encodings:
+                    if self.resnet_n_layers_inner:
+                        projection = DenseResidualLayer(
+                            training=self.training,
+                            units=n_units[-1],
                             kernel_initializer='identity_initializer',
                             layers_inner=self.resnet_n_layers_inner,
                             activation_inner=self.activation,
-                            activation=self.activation,
+                            activation=None,
                             project_inputs=False,
                             session=self.sess,
                             name=name + '_projection'
-                        )(encoder)
+                        )
                     else:
-                        encoder = DenseLayer(
+                        projection = DenseLayer(
                             training=self.training,
-                            units=self.word_emb_dim,
+                            units=n_units[-1],
                             kernel_initializer='identity_initializer',
-                            activation=self.activation,
+                            activation=None,
                             session=self.sess,
                             name=name + '_projection'
-                        )(encoder)
+                        )
+                    out.append(make_lambda(projection, session=self.sess))
 
-                return encoder
+                out = compose_lambdas(out)
 
-    def _initialize_encoding(self, word_embedding, n_layers, n_units, name='encoder'):
+                return out
+
+    def _initialize_word_embedding(self, inputs, encoder, character_mask=None):
         with self.sess.as_default():
             with self.sess.graph.as_default():
-                encoder = word_embedding
+                B = tf.shape(inputs)[0]
+                W = tf.shape(inputs)[1]
+                C = tf.shape(inputs)[2]
+                F = inputs.shape[3]
 
-                for l in range(n_layers):
-                    encoder_fwd = RNNLayer(
-                        training=self.training,
-                        units=int(n_units[l] / 2),
-                        activation=self.activation,
-                        recurrent_activation=self.recurrent_activation,
-                        return_sequences=True,
-                        name=name + '_l%d' % l,
-                        session=self.sess
-                    )(encoder, mask=self.word_mask)
+                inputs_flattened = tf.reshape(inputs, [B * W, C, F])
+                character_mask_flattened = tf.reshape(character_mask, [B * W, C])
 
-                    if self.bidirectional:
-                        encoder_bwd = RNNLayer(
-                            training=self.training,
-                            units=int(n_units[l] / 2),
-                            activation=self.activation,
-                            recurrent_activation=self.recurrent_activation,
-                            return_sequences=True,
-                            name=name + '_l%d' % l,
-                            session=self.sess
-                        )(tf.reverse(encoder, axis=[1]), mask=tf.reverse(self.word_mask, axis=[1]))
-                        encoder = tf.concat([encoder_fwd, encoder_bwd], axis=2)
-                    else:
-                        encoder = encoder_fwd
+                word_embedding = encoder(inputs_flattened, mask=character_mask_flattened)
 
-                if self.project_encodings:
-                    if self.resnet_n_layers_inner:
-                        encoder = DenseResidualLayer(
-                            training=self.training,
-                            units=n_units[-1],
-                            kernel_initializer='identity_initializer',
-                            layers_inner=self.resnet_n_layers,
-                            activation_inner=self.activation,
-                            activation=self.activation,
-                            project_inputs=False,
-                            session=self.sess,
-                            name=name + '_projection'
-                        )(encoder)
-                    else:
-                        encoder = DenseLayer(
-                            training=self.training,
-                            units=n_units[-1],
-                            kernel_initializer='identity_initializer',
-                            activation=self.activation,
-                            session=self.sess,
-                            name=name + '_projection'
-                        )(encoder)
+                word_embedding = tf.reshape(word_embedding, [B, W, self.word_emb_dim])
 
-                    encoder *= self.word_mask[..., None]
+                return word_embedding
 
-                return encoder
+    def _initialize_encoding(self, inputs, encoder, mask=None):
+        with self.sess.as_default():
+            with self.sess.graph.as_default():
 
-    def _initialize_outputs(self):
+                return encoder(inputs, mask=mask) * mask[..., None]
+
+    def _initialize_syntactic_outputs(self):
         with self.sess.as_default():
             with self.sess.graph.as_default():
 
                 units = self.n_pos + self.n_parse_label + self.factor_parse_labels
 
-                self.logits_from_syn = DenseLayer(
+                self.syn_logits_from_syn = DenseLayer(
                     training=self.training,
                     units=units,
                     kernel_initializer='he_normal_initializer',
                     activation=None,
                     session=self.sess,
                     name='logits_from_syn'
-                )(self.syntactic_encoding)
+                )(self.parsing_word_encodings_syn)
 
-                self.pos_label_logits_from_syn = self.logits_from_syn[..., :self.n_pos]
+                self.pos_label_logits_from_syn = self.syn_logits_from_syn[..., :self.n_pos]
                 self.pos_label_prediction_from_syn = tf.argmax(self.pos_label_logits_from_syn, axis=2)
-                self.parse_label_logits_from_syn = self.logits_from_syn[..., self.n_pos:self.n_pos+self.n_parse_label]
+                self.parse_label_logits_from_syn = self.syn_logits_from_syn[..., self.n_pos:self.n_pos + self.n_parse_label]
                 self.parse_label_prediction_from_syn = tf.argmax(self.parse_label_logits_from_syn, axis=2)
                 if self.factor_parse_labels:
-                    self.parse_depth_logits_from_syn = self.logits_from_syn[..., self.n_pos+self.n_parse_label]
+                    self.parse_depth_logits_from_syn = self.syn_logits_from_syn[..., self.n_pos + self.n_parse_label]
                     self.parse_depth_prediction_from_syn = tf.cast(tf.round(self.parse_depth_logits_from_syn), dtype=self.INT_TF)
 
-                self.logits_from_sem = DenseLayer(
+                self.syn_logits_from_sem = DenseLayer(
                     training=self.training,
                     units=units,
                     kernel_initializer='he_normal_initializer',
                     activation=None,
                     session=self.sess,
                     name='logits_from_sem'
-                )(self.semantic_encoding)
+                )(self.parsing_word_encodings_sem)
 
-                self.pos_label_logits_from_sem = self.logits_from_sem[..., :self.n_pos]
+                self.pos_label_logits_from_sem = self.syn_logits_from_sem[..., :self.n_pos]
                 self.pos_label_prediction_from_sem = tf.argmax(self.pos_label_logits_from_sem, axis=2)
-                self.parse_label_logits_from_sem = self.logits_from_sem[..., self.n_pos:self.n_pos + self.n_parse_label]
+                self.parse_label_logits_from_sem = self.syn_logits_from_sem[..., self.n_pos:self.n_pos + self.n_parse_label]
                 self.parse_label_prediction_from_sem = tf.argmax(self.parse_label_logits_from_sem, axis=2)
                 if self.factor_parse_labels:
-                    self.parse_depth_logits_from_sem = self.logits_from_sem[..., self.n_pos + self.n_parse_label]
+                    self.parse_depth_logits_from_sem = self.syn_logits_from_sem[..., self.n_pos + self.n_parse_label]
                     self.parse_depth_prediction_from_sem = tf.cast(tf.round(self.parse_depth_logits_from_sem), dtype=self.INT_TF)
-                    
 
-    def _initialize_objective(self):
+    # TODO: For Evan
+    def _initialize_semantic_outputs(self):
+        with self.sess.as_default():
+
+            # Define some new tensors for semantic predictions from both syntactic and semantic encoders.
+
+            pass
+
+    def _initialize_syntactic_objective(self):
         with self.sess.as_default():
             with self.sess.graph.as_default():
+                loss = 0.
+                
                 self.syn_pos_label_loss = tf.losses.sparse_softmax_cross_entropy(
                     self.pos_label,
                     self.pos_label_logits_from_syn,
-                    weights=self.word_mask
+                    weights=self.parsing_word_mask
                 )
                 self.syn_parse_label_loss = tf.losses.sparse_softmax_cross_entropy(
                     self.parse_label,
                     self.parse_label_logits_from_syn,
-                    weights=self.word_mask
+                    weights=self.parsing_word_mask
                 )
 
                 self.sem_pos_label_loss = tf.losses.sparse_softmax_cross_entropy(
                     self.pos_label,
                     self.pos_label_logits_from_sem,
-                    weights=self.word_mask
+                    weights=self.parsing_word_mask
                 )
                 self.sem_parse_label_loss = tf.losses.sparse_softmax_cross_entropy(
                     self.pos_label,
                     self.parse_label_logits_from_sem,
-                    weights=self.word_mask
+                    weights=self.parsing_word_mask
                 )
 
-                self.loss = self.syn_pos_label_loss + self.syn_parse_label_loss
+                loss = self.syn_pos_label_loss + self.syn_parse_label_loss
 
                 if self.factor_parse_labels:
                     self.syn_parse_depth_loss = tf.losses.mean_squared_error(
                         self.parse_depth,
                         self.parse_depth_logits_from_syn,
-                        weights=self.word_mask
+                        weights=self.parsing_word_mask
                     )
                     self.sem_parse_depth_loss = tf.losses.mean_squared_error(
                         self.parse_depth,
                         self.parse_depth_logits_from_sem,
-                        weights=self.word_mask
+                        weights=self.parsing_word_mask
                     )
-                    self.loss += self.syn_parse_depth_loss
 
+                    # Define well-formedness losses.
+                    #   ZERO SUM: In a valid tree, word-by-word changes in depth should sum to 0.
+                    #             Encouraged by an L1 loss on the sum of the predicted depths.
+                    #   NO NEG:   In a valid tree, no word should close more constituents than it has ancestors.
+                    #             Encouraged by an L1 loss on negative cells in a cumsum over predicted depths.
+
+                    masked_depth_logits = self.parse_depth_logits_from_syn * self.parsing_word_mask
+                    depth_abs_sums = tf.abs(tf.reduce_sum(masked_depth_logits, axis=1)) # Trying to make these 0
+                    depth_abs_clipped_cumsums = tf.abs(tf.clip_by_value(tf.cumsum(masked_depth_logits), -np.inf, 0.))
+
+                    zero_sum_denom = tf.cast(tf.shape(self.parsing_characters)[0], dtype=self.FLOAT_TF) # Normalize by the minibatch size
+                    no_neg_denom = tf.reduce_sum(self.parsing_word_mask) + self.epsilon # Normalize by the number of non-padding words
+
+                    self.syn_zero_sum_loss = tf.reduce_sum(depth_abs_sums, axis=0) / zero_sum_denom
+                    self.syn_no_neg_loss = tf.reduce_sum(depth_abs_clipped_cumsums, axis=0) / no_neg_denom
+
+                    loss += self.syn_parse_depth_loss + self.syn_zero_sum_loss + self.syn_no_neg_loss
+                    
+                return loss
+
+    # TODO: For Evan
+    def _initialize_semantic_objective(self):
+        with self.sess.as_default():
+            with self.sess.graph.as_default():
+                loss = 0.
+
+                # loss += SOME STUFF
+
+                return loss
+
+    def _initialize_train_op(self):
+        with self.sess.as_default():
+            with self.sess.graph.as_default():
                 self.optim = self._initialize_optimizer(self.optim_name)
                 self.train_op = self.optim.minimize(self.loss, global_step=self.global_batch_step)
 
@@ -754,8 +869,8 @@ class SynSemNet(object):
                                 parse_depth_batch = None
 
                             fd_minibatch = {
-                                self.characters: syn_text_batch,
-                                self.character_mask: syn_text_mask_batch,
+                                self.parsing_characters: syn_text_batch,
+                                self.parsing_character_mask: syn_text_mask_batch,
                                 self.pos_label: pos_label_batch,
                                 self.parse_label: parse_label_batch
                             }
@@ -778,8 +893,18 @@ class SynSemNet(object):
                                 'parse_label_prediction_from_syn'
                             ]
                             if self.factor_parse_labels:
-                                to_run += [self.parse_depth_prediction_from_syn, self.syn_parse_depth_loss]
-                                to_run_names += ['parse_depth_prediction_from_syn', 'syn_parse_depth_loss']
+                                to_run += [
+                                    self.parse_depth_prediction_from_syn,
+                                    self.syn_parse_depth_loss,
+                                    self.syn_zero_sum_loss,
+                                    self.syn_no_neg_loss,
+                                ]
+                                to_run_names += [
+                                    'parse_depth_prediction_from_syn',
+                                    'syn_parse_depth_loss',
+                                    'syn_zero_sum_loss',
+                                    'syn_no_neg_loss',
+                                ]
 
                             out = self.sess.run(
                                 to_run,
@@ -790,19 +915,19 @@ class SynSemNet(object):
                             for j, x in enumerate(out):
                                 info_dict[to_run_names[j]] = x
 
-                            # if i % 100 == 0:
-                            #     print(
-                            #         train_data.pretty_print_syn_predictions(
-                            #             text=syn_text_batch[:10],
-                            #             pos_label_true=pos_label_batch[:10],
-                            #             pos_label_pred=info_dict['pos_label_prediction_from_syn'][:10],
-                            #             parse_label_true=parse_label_batch[:10],
-                            #             parse_label_pred=info_dict['parse_label_prediction_from_syn'][:10],
-                            #             parse_depth_true=parse_depth_batch[:10],
-                            #             parse_depth_pred=info_dict['parse_depth_prediction_from_syn'][:10] if self.factor_parse_labels else None,
-                            #             mask=syn_text_mask_batch[:10]
-                            #         )
-                            #     )
+                            if i % 100 == 0:
+                                print(
+                                    train_data.pretty_print_syn_predictions(
+                                        text=syn_text_batch[:10],
+                                        pos_label_true=pos_label_batch[:10],
+                                        pos_label_pred=info_dict['pos_label_prediction_from_syn'][:10],
+                                        parse_label_true=parse_label_batch[:10],
+                                        parse_label_pred=info_dict['parse_label_prediction_from_syn'][:10],
+                                        parse_depth_true=parse_depth_batch[:10],
+                                        parse_depth_pred=info_dict['parse_depth_prediction_from_syn'][:10] if self.factor_parse_labels else None,
+                                        mask=syn_text_mask_batch[:10]
+                                    )
+                                )
 
                             if verbose:
                                 values = [
@@ -810,7 +935,11 @@ class SynSemNet(object):
                                     ('label', info_dict['syn_parse_label_loss'])
                                 ]
                                 if self.factor_parse_labels:
-                                    values.append(('depth', info_dict['syn_parse_depth_loss']),)
+                                    values += [
+                                        ('depth', info_dict['syn_parse_depth_loss']),
+                                        ('zero', info_dict['syn_zero_sum_loss']),
+                                        ('noneg', info_dict['syn_no_neg_loss']),
+                                    ]
                                 pb.update(i+1, values=values)
 
                         samples = train_data.pretty_print_syn_predictions(
@@ -825,6 +954,8 @@ class SynSemNet(object):
                         )
 
                         stderr('Sample training instances:\n\n' + samples)
+
+                        self.sess.run(self.incr_global_step)
 
                         self.save()
 
