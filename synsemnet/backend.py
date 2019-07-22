@@ -202,6 +202,18 @@ def make_bi_rnn_layer(fwd, bwd, session=None):
             return bi_rnn
 
 
+def replace_gradient(fw_op, bw_op, session=None):
+    session = get_session(session)
+    with session.as_default():
+        with session.graph.as_default():
+            def new_op(x):
+                fw = fw_op(x)
+                bw = bw_op(x)
+                out = bw + tf.stop_gradient(fw-bw)
+                return out
+            return new_op
+
+
 class DenseLayer(object):
 
     def __init__(

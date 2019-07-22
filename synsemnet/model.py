@@ -410,6 +410,7 @@ class SynSemNet(object):
     def _initialize_syntactic_outputs(self):
         with self.sess.as_default():
             with self.sess.graph.as_default():
+                L = 1.
 
                 units = self.n_pos + self.n_parse_label + self.factor_parse_labels
 
@@ -430,6 +431,13 @@ class SynSemNet(object):
                     self.parse_depth_logits_from_syn = self.syn_logits_from_syn[..., self.n_pos + self.n_parse_label]
                     self.parse_depth_prediction_from_syn = tf.cast(tf.round(self.parse_depth_logits_from_syn), dtype=self.INT_TF)
 
+                # Flip gradients from parsing objective into semantic encoder
+                # ``L`` rescales the gradient
+                parsing_sem_adversarial = replace_gradient(
+                    tf.identity,
+                    lambda x: -(x * L)
+                )(self.parsing_word_encodings_sem)
+
                 self.syn_logits_from_sem = DenseLayer(
                     training=self.training,
                     units=units,
@@ -437,7 +445,7 @@ class SynSemNet(object):
                     activation=None,
                     session=self.sess,
                     name='logits_from_sem'
-                )(self.parsing_word_encodings_sem)
+                )(parsing_sem_adversarial)
 
                 self.pos_label_logits_from_sem = self.syn_logits_from_sem[..., :self.n_pos]
                 self.pos_label_prediction_from_sem = tf.argmax(self.pos_label_logits_from_sem, axis=2)
