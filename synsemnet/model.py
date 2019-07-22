@@ -125,6 +125,8 @@ class SynSemNet(object):
 
         self._initialize_inputs()
 
+        GRADIENT_FLIP_SCALE = 1.
+
         # Construct encoders
         self.syntactic_character_rnn = self._initialize_rnn_encoder(
             1,
@@ -180,6 +182,16 @@ class SynSemNet(object):
             self.semantic_word_encoder,
             mask=self.parsing_word_mask
         )
+        self.parsing_word_encodings_syn_adversarial = replace_gradient(
+            tf.identity,
+            lambda x: -(x * GRADIENT_FLIP_SCALE),
+            session=self.sess
+        )(self.parsing_word_encodings_syn)
+        self.parsing_word_encodings_sem_adversarial = replace_gradient(
+            tf.identity,
+            lambda x: -(x * GRADIENT_FLIP_SCALE),
+            session=self.sess
+        )(self.parsing_word_encodings_sem)
 
         # Construct encodings for semantic tasks
         self.sts_s1_word_embeddings_syn = self._initialize_word_embedding(
@@ -222,6 +234,26 @@ class SynSemNet(object):
             self.semantic_word_encoder,
             mask=self.sts_s2_word_mask
         )
+        self.sts_s1_word_encodings_syn_adversarial = replace_gradient(
+            tf.identity,
+            lambda x: -(x * GRADIENT_FLIP_SCALE),
+            session=self.sess
+        )(self.sts_s1_word_encodings_syn)
+        self.sts_s2_word_encodings_sem_adversarial = replace_gradient(
+            tf.identity,
+            lambda x: -(x * GRADIENT_FLIP_SCALE),
+            session=self.sess
+        )(self.sts_s2_word_encodings_sem)
+        self.sts_s2_word_encodings_syn_adversarial = replace_gradient(
+            tf.identity,
+            lambda x: -(x * GRADIENT_FLIP_SCALE),
+            session=self.sess
+        )(self.sts_s2_word_encodings_syn)
+        self.sts_s2_word_encodings_sem_adversarial = replace_gradient(
+            tf.identity,
+            lambda x: -(x * GRADIENT_FLIP_SCALE),
+            session=self.sess
+        )(self.sts_s2_word_encodings_sem)
 
         # Construct outputs for both tasks
         self._initialize_syntactic_outputs()
@@ -410,8 +442,6 @@ class SynSemNet(object):
     def _initialize_syntactic_outputs(self):
         with self.sess.as_default():
             with self.sess.graph.as_default():
-                L = 1.
-
                 units = self.n_pos + self.n_parse_label + self.factor_parse_labels
 
                 self.syn_logits_from_syn = DenseLayer(
@@ -431,13 +461,6 @@ class SynSemNet(object):
                     self.parse_depth_logits_from_syn = self.syn_logits_from_syn[..., self.n_pos + self.n_parse_label]
                     self.parse_depth_prediction_from_syn = tf.cast(tf.round(self.parse_depth_logits_from_syn), dtype=self.INT_TF)
 
-                # Flip gradients from parsing objective into semantic encoder
-                # ``L`` rescales the gradient
-                parsing_sem_adversarial = replace_gradient(
-                    tf.identity,
-                    lambda x: -(x * L)
-                )(self.parsing_word_encodings_sem)
-
                 self.syn_logits_from_sem = DenseLayer(
                     training=self.training,
                     units=units,
@@ -445,7 +468,7 @@ class SynSemNet(object):
                     activation=None,
                     session=self.sess,
                     name='logits_from_sem'
-                )(parsing_sem_adversarial)
+                )(self.parsing_word_encodings_sem_adversarial)
 
                 self.pos_label_logits_from_sem = self.syn_logits_from_sem[..., :self.n_pos]
                 self.pos_label_prediction_from_sem = tf.argmax(self.pos_label_logits_from_sem, axis=2)
