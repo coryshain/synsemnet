@@ -645,7 +645,61 @@ class SynSemNet(object):
                     self.ema_saver = tf.train.Saver(self.ema_map)
 
     def _initialize_logging(self):
+        with self.sess.as_default():
+            with self.sess.graph.as_default():
+                if self.log_graph:
+                    self.train_writer = tf.summary.FileWriter(self.outdir + '/tensorboard/train', self.sess.graph)
+                    self.dev_writer = tf.summary.FileWriter(self.outdir + '/tensorboard/dev', self.sess.graph)
+                else:
+                    self.train_writer = tf.summary.FileWriter(self.outdir + '/tensorboard/train')
+                    self.dev_writer = tf.summary.FileWriter(self.outdir + '/tensorboard/dev')
+
+                self.parsing_log_entries = self._initialize_parsing_log_entries(syn=True, sem=False)
+                self.parsing_log_summaries = self._initialize_parsing_log_summaries(self.parsing_log_entries)
+                self.parsing_summary = tf.summary.merge_all(key='parsing_losses')
+                
+                self.sts_log_entries = self._initialize_sts_log_entries(syn=True, sem=False)
+                self.sts_log_summaries = self._initialize_sts_log_summaries(self.sts_log_entries)
+                self.sts_summary = tf.summary.merge_all(key='sts_losses')
+
+    def _initialize_parsing_log_entries(self, syn=True, sem=True):
+        log_entries = []
+        if syn:
+            log_entries += [
+                'pos_label_loss_syn',
+                'parse_label_loss_syn',
+                'parse_depth_loss_syn',
+            ]
+        if sem:
+            log_entries += [
+                'pos_label_loss_sem',
+                'parse_label_loss_sem',
+                'parse_depth_loss_sem',
+            ]
+            
+        return log_entries
+        
+    def _initialize_parsing_log_summaries(self, log_entries, collection='parsing_losses'):
+        with self.sess.as_default():
+            with self.sess.graph.as_default():
+                log_summaries = {}
+
+                for x in log_entries:
+                    log_summaries[x] = tf.placeholder(self.FLOAT_TF, shape=[], name=x + '_placeholder')
+                    tf.summary.scalar('%s/%s' % (collection, x), log_summaries[x], collections=[collection])
+
+                return log_summaries
+            
+    # TODO: For Evan
+    def _initialize_sts_log_entries(self, syn=True, sem=True):
         pass
+
+    # TODO: For Evan
+    def _initialize_sts_log_summaries(self, log_entries, collection='sts_losses'):
+        pass
+
+            
+        
 
     ############################################################
     # Private utility methods
@@ -684,6 +738,322 @@ class SynSemNet(object):
 
         return ClippedOptimizer
 
+    def _run_batches(
+            self,
+            data,
+            data_name='train',
+            minibatch_size=None,
+            n_minibatch=None,
+            update=False,
+            randomize=False,
+            return_syn_parsing_losses=False,
+            return_sem_parsing_losses=False,
+            return_syn_sts_losses=False,
+            return_sem_sts_losses=False,
+            return_syn_parsing_predictions=False,
+            return_sem_parsing_predictions=False,
+            return_syn_sts_predictions=False,
+            return_sem_sts_predictions=False,
+            verbose=True
+    ):
+        if minibatch_size is None:
+            minibatch_size = self.minibatch_size
+        if n_minibatch is None:
+            n_minibatch = data.get_n_minibatch(data_name, minibatch_size)
+
+        to_run = []
+        to_run_names = []
+
+        if update:
+            to_run.append(self.train_op)
+            to_run_names.append('train_op')
+
+        to_run += [
+            self.loss
+        ]
+        to_run_names += [
+            'loss'
+        ]
+
+        parsing_loss_tensors, parsing_loss_tensor_names = self._get_parsing_loss_tensors(
+            syn=return_syn_parsing_losses,
+            sem=return_sem_parsing_losses
+        )
+
+        parsing_prediction_tensors, parsing_prediction_tensor_names = self._get_parsing_prediction_tensors(
+            syn=return_syn_parsing_predictions,
+            sem=return_sem_parsing_predictions
+        )
+
+        sts_loss_tensors, sts_loss_tensor_names = self._get_sts_loss_tensors(
+            syn=return_syn_sts_losses,
+            sem=return_sem_sts_losses
+        )
+
+        sts_prediction_tensors, sts_prediction_tensor_names = self._get_sts_prediction_tensors(
+            syn=return_syn_sts_predictions,
+            sem=return_sem_sts_predictions
+        )
+
+        to_run += parsing_loss_tensors + parsing_prediction_tensors + sts_loss_tensors + sts_prediction_tensors
+        to_run_names += parsing_loss_tensor_names + parsing_prediction_tensor_names + sts_loss_tensor_names + sts_prediction_tensor_names
+
+        info_dict = {}
+        gold_keys = set()
+        for k in to_run_names:
+            if 'loss' in k:
+                info_dict[k] = 0.
+            elif 'prediction' in k:
+                info_dict[k] = []
+                gold_key = k.replace('_syn', '').replace('_sem', '').replace('prediction', 'true')
+                if not gold_key in info_dict:
+                    gold_keys.add(gold_key)
+                    info_dict[gold_key] = []
+
+        if return_syn_parsing_predictions or return_syn_parsing_predictions:
+            info_dict['parsing_text'] = []
+            info_dict['parsing_text_mask'] = []
+            gold_keys.add('parsing_text')
+            gold_keys.add('parsing_text_mask')
+
+        with self.sess.as_default():
+            with self.sess.graph.as_default():
+                if verbose:
+                    pb = tf.contrib.keras.utils.Progbar(n_minibatch)
+
+                data_feed = data.get_parsing_data_feed(
+                    data_name,
+                    minibatch_size=minibatch_size,
+                    randomize=randomize
+                )
+
+                for i, batch in enumerate(data_feed):
+                    parsing_text_batch = batch['parsing_text']
+                    parsing_text_mask_batch = batch['parsing_text_mask']
+                    pos_label_batch = batch['pos_label']
+                    parse_label_batch = batch['parse_label']
+                    if self.factor_parse_labels:
+                        parse_depth_batch = batch['parse_depth']
+                    else:
+                        parse_depth_batch = None
+
+                    if 'parsing_text' in gold_keys:
+                        info_dict['parsing_text'].append(parsing_text_batch)
+                    if 'parsing_text_mask' in gold_keys:
+                        info_dict['parsing_text_mask'].append(parsing_text_mask_batch)
+                    if 'pos_label_true' in gold_keys:
+                        info_dict['pos_label_true'].append(pos_label_batch)
+                    if 'parse_label_true' in gold_keys:
+                        info_dict['parse_label_true'].append(parse_label_batch)
+                    if 'parse_depth_true' in gold_keys:
+                        info_dict['parse_depth_true'].append(parse_depth_batch)
+
+                    fd_minibatch = {
+                        self.parsing_characters: parsing_text_batch,
+                        self.parsing_character_mask: parsing_text_mask_batch,
+                        self.pos_label: pos_label_batch,
+                        self.parse_label: parse_label_batch
+                    }
+                    if self.factor_parse_labels:
+                        fd_minibatch[self.parse_depth] = parse_depth_batch
+
+                    out = self.sess.run(
+                        to_run,
+                        feed_dict=fd_minibatch
+                    )
+
+                    batch_dict = {}
+                    for j, x in enumerate(out):
+                        batch_dict[to_run_names[j]] = x
+
+                    for k in info_dict:
+                        if 'loss' in k:
+                            info_dict[k] += batch_dict[k]
+                        elif 'prediction' in k:
+                            info_dict[k].append(batch_dict[k])
+
+                    if verbose:
+                        values = [
+                            ('pos', batch_dict['pos_label_loss_syn']),
+                            ('label', batch_dict['parse_label_loss_syn'])
+                        ]
+                        if self.factor_parse_labels:
+                            values += [
+                                ('depth', batch_dict['parse_depth_loss_syn'])
+                            ]
+                        pb.update(i + 1, values=values)
+
+                for k in info_dict:
+                    if 'loss' in k:
+                        info_dict[k] /= n_minibatch
+                    elif 'prediction' in k or k in gold_keys:
+                        if len(info_dict[k]) > 0:
+                            info_dict[k] = np.concatenate(info_dict[k], axis=0)
+                        else:
+                            print('Empty list:')
+                            print(k)
+                            print()
+
+                return info_dict
+
+    def _get_parsing_loss_tensors(self, syn=True, sem=True):
+        tensors = []
+        tensor_names = []
+        if syn:
+            tensors += [
+                self.parse_label_loss_syn,
+                self.pos_label_loss_syn,
+            ]
+            tensor_names += [
+                'parse_label_loss_syn',
+                'pos_label_loss_syn',
+            ]
+            if self.factor_parse_labels:
+                tensors.append(self.parse_depth_loss_syn)
+                tensor_names.append('parse_depth_loss_syn')
+
+        if sem:
+            tensors += [
+                self.parse_label_loss_sem,
+                self.pos_label_loss_sem,
+            ]
+            tensor_names += [
+                'parse_label_loss_sem',
+                'pos_label_loss_sem',
+            ]
+            if self.factor_parse_labels:
+                tensors.append(self.parse_depth_loss_sem)
+                tensor_names.append('parse_depth_loss_sem')
+
+        return tensors, tensor_names
+
+    def _get_parsing_prediction_tensors(self, syn=True, sem=True):
+        tensors = []
+        tensor_names = []
+        if syn:
+            tensors += [
+                self.pos_label_prediction_syn,
+                self.parse_label_prediction_syn
+            ]
+            tensor_names += [
+                'pos_label_prediction_syn',
+                'parse_label_prediction_syn'
+            ]
+            if self.factor_parse_labels:
+                tensors += [
+                    self.parse_depth_prediction_syn
+                ]
+                tensor_names += [
+                    'parse_depth_prediction_syn'
+                ]
+        if sem:
+            tensors += [
+                self.pos_label_prediction_sem,
+                self.parse_label_prediction_sem
+            ]
+            tensor_names += [
+                'pos_label_prediction_sem',
+                'parse_label_prediction_sem'
+            ]
+            if self.factor_parse_labels:
+                tensors += [
+                    self.parse_depth_prediction_sem
+                ]
+                tensor_names += [
+                    'parse_depth_prediction_sem'
+                ]
+
+        return tensors, tensor_names
+
+    # TODO: For Evan
+    def _get_sts_loss_tensors(self, syn=True, sem=True):
+        tensors = []
+        tensor_names = []
+        if syn:
+            # Get STS loss tensors and names from syntactic encoder
+            pass
+
+        if sem:
+            # Get STS loss tensors and names from semantic encoder
+            pass
+
+        return tensors, tensor_names
+
+    # TODO: For Evan
+    def _get_sts_prediction_tensors(self, syn=True, sem=True):
+        tensors = []
+        tensor_names = []
+        if syn:
+            # Get STS prediction tensors and names from syntactic encoder
+            pass
+
+        if sem:
+            # Get STS prediction tensors and names from semantic encoder
+            pass
+
+        return tensors, tensor_names
+
+
+    # Thanks to Ralph Mao (https://github.com/RalphMao) for this workaround
+    def _restore_inner(self, path, predict=False, allow_missing=False):
+        with self.sess.as_default():
+            with self.sess.graph.as_default():
+                try:
+                    if predict:
+                        self.ema_saver.restore(self.sess, path)
+                    else:
+                        self.saver.restore(self.sess, path)
+                except tf.errors.DataLossError:
+                    sys.stderr.write('Read failure during load. Trying from backup...\n')
+                    if predict:
+                        self.ema_saver.restore(self.sess, path[:-5] + '_backup.ckpt')
+                    else:
+                        self.saver.restore(self.sess, path[:-5] + '_backup.ckpt')
+                except tf.errors.NotFoundError as err:  # Model contains variables that are missing in checkpoint, special handling needed
+                    if allow_missing:
+                        reader = tf.train.NewCheckpointReader(path)
+                        saved_shapes = reader.get_variable_to_shape_map()
+                        model_var_names = sorted(
+                            [(var.name, var.name.split(':')[0]) for var in tf.global_variables()])
+                        ckpt_var_names = sorted([(var.name, var.name.split(':')[0]) for var in tf.global_variables()
+                                                 if var.name.split(':')[0] in saved_shapes])
+
+                        model_var_names_set = set([x[1] for x in model_var_names])
+                        ckpt_var_names_set = set([x[1] for x in ckpt_var_names])
+
+                        missing_in_ckpt = model_var_names_set - ckpt_var_names_set
+                        if len(missing_in_ckpt) > 0:
+                            sys.stderr.write(
+                                'Checkpoint file lacked the variables below. They will be left at their initializations.\n%s.\n\n' % (
+                                    sorted(list(missing_in_ckpt))))
+                        missing_in_model = ckpt_var_names_set - model_var_names_set
+                        if len(missing_in_model) > 0:
+                            sys.stderr.write(
+                                'Checkpoint file contained the variables below which do not exist in the current model. They will be ignored.\n%s.\n\n' % (
+                                    sorted(list(missing_in_ckpt))))
+
+                        restore_vars = []
+                        name2var = dict(
+                            zip(map(lambda x: x.name.split(':')[0], tf.global_variables()), tf.global_variables()))
+
+                        with tf.variable_scope('', reuse=True):
+                            for var_name, saved_var_name in ckpt_var_names:
+                                curr_var = name2var[saved_var_name]
+                                var_shape = curr_var.get_shape().as_list()
+                                if var_shape == saved_shapes[saved_var_name]:
+                                    restore_vars.append(curr_var)
+
+                        if predict:
+                            self.ema_map = {}
+                            for v in restore_vars:
+                                self.ema_map[self.ema.average_name(v)] = v
+                            saver_tmp = tf.train.Saver(self.ema_map)
+                        else:
+                            saver_tmp = tf.train.Saver(restore_vars)
+
+                        saver_tmp.restore(self.sess, path)
+                    else:
+                        raise err
 
 
 
@@ -758,67 +1128,6 @@ class SynSemNet(object):
                     if predict:
                         stderr('No EMA checkpoint available. Leaving internal variables unchanged.\n')
 
-    # Thanks to Ralph Mao (https://github.com/RalphMao) for this workaround
-    def _restore_inner(self, path, predict=False, allow_missing=False):
-        with self.sess.as_default():
-            with self.sess.graph.as_default():
-                try:
-                    if predict:
-                        self.ema_saver.restore(self.sess, path)
-                    else:
-                        self.saver.restore(self.sess, path)
-                except tf.errors.DataLossError:
-                    sys.stderr.write('Read failure during load. Trying from backup...\n')
-                    if predict:
-                        self.ema_saver.restore(self.sess, path[:-5] + '_backup.ckpt')
-                    else:
-                        self.saver.restore(self.sess, path[:-5] + '_backup.ckpt')
-                except tf.errors.NotFoundError as err:  # Model contains variables that are missing in checkpoint, special handling needed
-                    if allow_missing:
-                        reader = tf.train.NewCheckpointReader(path)
-                        saved_shapes = reader.get_variable_to_shape_map()
-                        model_var_names = sorted(
-                            [(var.name, var.name.split(':')[0]) for var in tf.global_variables()])
-                        ckpt_var_names = sorted([(var.name, var.name.split(':')[0]) for var in tf.global_variables()
-                                                 if var.name.split(':')[0] in saved_shapes])
-
-                        model_var_names_set = set([x[1] for x in model_var_names])
-                        ckpt_var_names_set = set([x[1] for x in ckpt_var_names])
-
-                        missing_in_ckpt = model_var_names_set - ckpt_var_names_set
-                        if len(missing_in_ckpt) > 0:
-                            sys.stderr.write(
-                                'Checkpoint file lacked the variables below. They will be left at their initializations.\n%s.\n\n' % (
-                                    sorted(list(missing_in_ckpt))))
-                        missing_in_model = ckpt_var_names_set - model_var_names_set
-                        if len(missing_in_model) > 0:
-                            sys.stderr.write(
-                                'Checkpoint file contained the variables below which do not exist in the current model. They will be ignored.\n%s.\n\n' % (
-                                    sorted(list(missing_in_ckpt))))
-
-                        restore_vars = []
-                        name2var = dict(
-                            zip(map(lambda x: x.name.split(':')[0], tf.global_variables()), tf.global_variables()))
-
-                        with tf.variable_scope('', reuse=True):
-                            for var_name, saved_var_name in ckpt_var_names:
-                                curr_var = name2var[saved_var_name]
-                                var_shape = curr_var.get_shape().as_list()
-                                if var_shape == saved_shapes[saved_var_name]:
-                                    restore_vars.append(curr_var)
-
-                        if predict:
-                            self.ema_map = {}
-                            for v in restore_vars:
-                                self.ema_map[self.ema.average_name(v)] = v
-                            saver_tmp = tf.train.Saver(self.ema_map)
-                        else:
-                            saver_tmp = tf.train.Saver(restore_vars)
-
-                        saver_tmp.restore(self.sess, path)
-                    else:
-                        raise err
-
     def set_predict_mode(self, mode):
         with self.sess.as_default():
             with self.sess.graph.as_default():
@@ -836,6 +1145,33 @@ class SynSemNet(object):
             out += ' ' * (indent + 2) + '%s: %s\n' %(kwarg.key, "\"%s\"" %val if isinstance(val, str) else val)
 
         return out
+
+    def update_logs(self, info_dict, name='train', task='parsing'):
+        with self.sess.as_default():
+            with self.sess.graph.as_default():
+                if name.lower() == 'train':
+                    writer = self.train_writer
+                elif name.lower() == 'dev':
+                    writer = self.dev_writer
+                else:
+                    raise ValueError('Unrecognized summary name "%s".' % name)
+
+                fd_summary = {}
+
+                if task.lower() == 'parsing':
+                    log_summaries = self.parsing_log_summaries
+                    summary = self.parsing_summary
+                elif task.lower() == 'sts':
+                    log_summaries = self.sts_log_summaries
+                    summary = self.sts_summary
+                else:
+                    raise ValueError('Unrecognized task "%s".' % task)
+
+                for k in self.parsing_log_summaries:
+                    fd_summary[log_summaries[k]] = info_dict[k]
+
+                summary_out = self.sess.run(summary, feed_dict=fd_summary)
+                writer.add_summary(summary_out, self.global_batch_step.eval(session=self.sess))
 
     def report_n_params(self, indent=0):
         with self.sess.as_default():
@@ -858,6 +1194,8 @@ class SynSemNet(object):
             self,
             data,
             n_iter,
+            n_print=5,
+            run_initial_eval=False,
             verbose=True
     ):
         if self.global_step.eval(session=self.sess) == 0:
@@ -877,258 +1215,103 @@ class SynSemNet(object):
             stderr('\n')
             stderr('*' * 100 + '\n\n')
 
-        n_minibatch = data.get_n_minibatch('train', self.minibatch_size)
-        n_minibatch_dev = data.get_n_minibatch('dev', self.minibatch_size)
-
         with self.sess.as_default():
             with self.sess.graph.as_default():
-                while self.global_step.eval(session=self.sess) < n_iter:
+                if run_initial_eval and self.global_step.eval(session=self.sess) == 0:
                     if verbose:
-                        t0_iter = time.time()
-                        if verbose:
-                            stderr('-' * 50 + '\n')
-                            stderr('Iteration %d\n' % int(self.global_step.eval(session=self.sess) + 1))
-                            stderr('\n')
-                            pb = tf.contrib.keras.utils.Progbar(n_minibatch)
+                        stderr('Running initial evaluation...\n')
 
-                        data_feed = data.get_parsing_data_feed(
-                            'train',
-                            minibatch_size=self.minibatch_size,
-                            randomize=True
-                        )
+                    info_dict_train = self._run_batches(
+                        data,
+                        data_name='train',
+                        minibatch_size=self.eval_minibatch_size,
+                        update=False,
+                        randomize=False,
+                        return_syn_parsing_losses=True,
+                        return_sem_parsing_losses=False,
+                        return_syn_parsing_predictions=False,
+                        return_sem_parsing_predictions=False,
+                        verbose=True
+                    )
 
-                        loss = 0.
+                    self.update_logs(info_dict_train, name='train', task='parsing')
 
-                        for i, batch in enumerate(data_feed):
-                            parsing_text_batch = batch['parsing_text']
-                            parsing_text_mask_batch = batch['parsing_text_mask']
-                            pos_label_batch = batch['pos_label']
-                            parse_label_batch = batch['parse_label']
-                            if self.factor_parse_labels:
-                                parse_depth_batch = batch['parse_depth']
-                            else:
-                                parse_depth_batch = None
+                    info_dict_dev = self._run_batches(
+                        data,
+                        data_name='dev',
+                        minibatch_size=self.eval_minibatch_size,
+                        update=False,
+                        randomize=False,
+                        return_syn_parsing_losses=True,
+                        return_sem_parsing_losses=False,
+                        return_syn_parsing_predictions=False,
+                        return_sem_parsing_predictions=False,
+                        verbose=True
+                    )
 
-                            fd_minibatch = {
-                                self.parsing_characters: parsing_text_batch,
-                                self.parsing_character_mask: parsing_text_mask_batch,
-                                self.pos_label: pos_label_batch,
-                                self.parse_label: parse_label_batch
-                            }
-                            if self.factor_parse_labels:
-                                fd_minibatch[self.parse_depth] = parse_depth_batch
+                    self.update_logs(info_dict_dev, name='dev', task='parsing')
 
-                            to_run = [
-                                self.train_op,
-                                self.parse_label_loss_syn,
-                                self.pos_label_loss_syn,
-                                self.pos_label_prediction_syn,
-                                self.parse_label_prediction_syn
-                            ]
-                            to_run_names = [
-                                'train_op',
-                                'parse_label_loss_syn',
-                                'pos_label_loss_syn',
-                                'pos_label_prediction_from_syn',
-                                'parse_label_prediction_from_syn'
-                            ]
-                            if self.factor_parse_labels:
-                                to_run += [
-                                    self.parse_depth_prediction_syn,
-                                    self.parse_depth_loss_syn,
-                                    # self.syn_zero_sum_loss,
-                                    # self.syn_no_neg_loss,
-                                ]
-                                to_run_names += [
-                                    'parse_depth_prediction_from_syn',
-                                    'parse_depth_loss_syn',
-                                    # 'syn_zero_sum_loss',
-                                    # 'syn_no_neg_loss',
-                                ]
+                while self.global_step.eval(session=self.sess) < n_iter:
+                    t0_iter = time.time()
+                    if verbose:
+                        stderr('-' * 50 + '\n')
+                        stderr('Iteration %d\n' % int(self.global_step.eval(session=self.sess) + 1))
+                        stderr('\n')
+                        stderr('Updating on training set...\n')
 
-                            out = self.sess.run(
-                                to_run,
-                                feed_dict=fd_minibatch
-                            )
+                    info_dict_train = self._run_batches(
+                        data,
+                        data_name='train',
+                        minibatch_size=self.minibatch_size,
+                        update=True,
+                        randomize=True,
+                        return_syn_parsing_losses=True,
+                        return_sem_parsing_losses=False,
+                        return_syn_parsing_predictions=True,
+                        return_sem_parsing_predictions=False,
+                        verbose=True
+                    )
 
-                            info_dict = {}
-                            for j, x in enumerate(out):
-                                info_dict[to_run_names[j]] = x
+                    self.sess.run(self.incr_global_step)
+                    self.save()
 
-                            # if i % 100 == 0:
-                            #     print(
-                            #         data.pretty_print_parse_predictions(
-                            #             text=parsing_text_batch[:10],
-                            #             pos_label_true=pos_label_batch[:10],
-                            #             pos_label_pred=info_dict['pos_label_prediction_from_syn'][:10],
-                            #             parse_label_true=parse_label_batch[:10],
-                            #             parse_label_pred=info_dict['parse_label_prediction_from_syn'][:10],
-                            #             parse_depth_true=parse_depth_batch[:10],
-                            #             parse_depth_pred=info_dict['parse_depth_prediction_from_syn'][:10] if self.factor_parse_labels else None,
-                            #             mask=parsing_text_mask_batch[:10]
-                            #         )
-                            #     )
+                    self.update_logs(info_dict_train, name='train', task='parsing')
 
-                            if verbose:
-                                values = [
-                                    ('pos', info_dict['pos_label_loss_syn']),
-                                    ('label', info_dict['parse_label_loss_syn'])
-                                ]
-                                if self.factor_parse_labels:
-                                    values += [
-                                        ('depth', info_dict['parse_depth_loss_syn']),
-                                        # ('zero', info_dict['syn_zero_sum_loss']),
-                                        # ('noneg', info_dict['syn_no_neg_loss']),
-                                    ]
-                                pb.update(i+1, values=values)
+                    if verbose:
+                        stderr('Evaluating on dev set...\n')
 
+                    info_dict_dev = self._run_batches(
+                        data,
+                        data_name='dev',
+                        minibatch_size=self.eval_minibatch_size,
+                        update=False,
+                        randomize=False,
+                        return_syn_parsing_losses=True,
+                        return_sem_parsing_losses=False,
+                        return_syn_parsing_predictions=True,
+                        return_sem_parsing_predictions=False,
+                        verbose=True
+                    )
+
+                    self.update_logs(info_dict_dev, name='dev', task='parsing')
+
+                    if verbose:
                         samples = data.pretty_print_parse_predictions(
-                            text=parsing_text_batch[:10],
-                            pos_label_true=pos_label_batch[:10],
-                            pos_label_pred=info_dict['pos_label_prediction_from_syn'][:10],
-                            parse_label_true=parse_label_batch[:10],
-                            parse_label_pred=info_dict['parse_label_prediction_from_syn'][:10],
-                            parse_depth_true=parse_depth_batch[:10],
-                            parse_depth_pred=info_dict['parse_depth_prediction_from_syn'][:10] if self.factor_parse_labels else None,
-                            mask=parsing_text_mask_batch[:10]
+                            text=info_dict_dev['parsing_text'][:n_print],
+                            pos_label_true=info_dict_dev['pos_label_true'][:n_print],
+                            pos_label_pred=info_dict_dev['pos_label_prediction_syn'][:n_print],
+                            parse_label_true=info_dict_dev['parse_label_true'][:n_print],
+                            parse_label_pred=info_dict_dev['parse_label_prediction_syn'][:n_print],
+                            parse_depth_true=info_dict_dev['parse_depth_true'][:n_print] if self.factor_parse_labels else None,
+                            parse_depth_pred=info_dict_dev['parse_depth_prediction_syn'][:n_print] if self.factor_parse_labels else None,
+                            mask=info_dict_dev['parsing_text_mask'][:n_print]
                         )
+                        stderr('Sample dev predictions:\n\n' + samples)
 
-                        stderr('Sample training instances:\n\n' + samples)
-
-                        data_feed = data.get_parsing_data_feed(
-                            'dev',
-                            minibatch_size=self.minibatch_size,
-                            randomize=True
-                        )
-
-
-                        # DEV SET EVALUATION
-                        # TODO: Cory, refactor so that training and eval loops share more code
-
-                        if verbose:
-                            stderr('-' * 50 + '\n')
-                            stderr('Iteration %d\n' % int(self.global_step.eval(session=self.sess) + 1))
-                            stderr('\n')
-                            pb = tf.contrib.keras.utils.Progbar(n_minibatch)
-
-                        data_feed = data.get_parsing_data_feed(
-                            'train',
-                            minibatch_size=self.eval_minibatch_size,
-                            randomize=False
-                        )
-
-                        loss = 0.
-                        pos_label_loss = 0.
-                        parse_label_loss = 0.
-                        if self.factor_parse_labels:
-                            parse_depth_loss = 0.
-
-                        for i, batch in enumerate(data_feed):
-                            parsing_text_batch = batch['parsing_text']
-                            parsing_text_mask_batch = batch['parsing_text_mask']
-                            pos_label_batch = batch['pos_label']
-                            parse_label_batch = batch['parse_label']
-                            if self.factor_parse_labels:
-                                parse_depth_batch = batch['parse_depth']
-                            else:
-                                parse_depth_batch = None
-
-                            fd_minibatch = {
-                                self.parsing_characters: parsing_text_batch,
-                                self.parsing_character_mask: parsing_text_mask_batch,
-                                self.pos_label: pos_label_batch,
-                                self.parse_label: parse_label_batch
-                            }
-                            if self.factor_parse_labels:
-                                fd_minibatch[self.parse_depth] = parse_depth_batch
-
-                            to_run = [
-                                self.loss,
-                                self.parse_label_loss_syn,
-                                self.pos_label_loss_syn,
-                                self.pos_label_prediction_syn,
-                                self.parse_label_prediction_syn
-                            ]
-                            to_run_names = [
-                                'loss',
-                                'parse_label_loss_syn',
-                                'pos_label_loss_syn',
-                                'pos_label_prediction_from_syn',
-                                'parse_label_prediction_from_syn'
-                            ]
-                            if self.factor_parse_labels:
-                                to_run += [
-                                    self.parse_depth_prediction_syn,
-                                    self.parse_depth_loss_syn,
-                                    # self.syn_zero_sum_loss,
-                                    # self.syn_no_neg_loss,
-                                ]
-                                to_run_names += [
-                                    'parse_depth_prediction_from_syn',
-                                    'parse_depth_loss_syn',
-                                    # 'syn_zero_sum_loss',
-                                    # 'syn_no_neg_loss',
-                                ]
-
-                            out = self.sess.run(
-                                to_run,
-                                feed_dict=fd_minibatch
-                            )
-
-                            info_dict = {}
-                            for j, x in enumerate(out):
-                                info_dict[to_run_names[j]] = x
-
-                            loss += info_dict['loss']
-                            pos_label_loss += info_dict['pos_label_loss_syn']
-                            parse_label_loss += info_dict['parse_label_loss_syn']
-                            if self.factor_parse_labels:
-                                parse_depth_loss += info_dict['parse_depth_loss_syn']
-
-                            if verbose:
-                                values = [
-                                    ('pos', info_dict['pos_label_loss_syn']),
-                                    ('label', info_dict['parse_label_loss_syn'])
-                                ]
-                                if self.factor_parse_labels:
-                                    values += [
-                                        ('depth', info_dict['parse_depth_loss_syn']),
-                                        # ('zero', info_dict['syn_zero_sum_loss']),
-                                        # ('noneg', info_dict['syn_no_neg_loss']),
-                                    ]
-                                pb.update(i+1, values=values)
-
-                        samples = data.pretty_print_parse_predictions(
-                            text=parsing_text_batch[:10],
-                            pos_label_true=pos_label_batch[:10],
-                            pos_label_pred=info_dict['pos_label_prediction_from_syn'][:10],
-                            parse_label_true=parse_label_batch[:10],
-                            parse_label_pred=info_dict['parse_label_prediction_from_syn'][:10],
-                            parse_depth_true=parse_depth_batch[:10],
-                            parse_depth_pred=info_dict['parse_depth_prediction_from_syn'][:10] if self.factor_parse_labels else None,
-                            mask=parsing_text_mask_batch[:10]
-                        )
-
-                        loss /= n_minibatch_dev
-                        pos_label_loss /= n_minibatch_dev
-                        parse_label_loss /= n_minibatch_dev
-                        if self.factor_parse_labels:
-                            parse_depth_loss /= n_minibatch_dev
-
-                        print('loss: %s' % loss)
-                        print('pos_label_loss: %s' % pos_label_loss)
-                        print('parse_label_loss: %s' % parse_label_loss)
-                        if self.factor_parse_labels:
-                            print('parse_depth_loss: %s' % parse_depth_loss)
-
-                        self.sess.run(self.incr_global_step)
-
-                        self.save()
-
-                        if verbose:
-                            t1_iter = time.time()
-                            time_str = pretty_print_seconds(t1_iter - t0_iter)
-                            stderr('Iteration time: %s\n' % time_str)
+                    if verbose:
+                        t1_iter = time.time()
+                        time_str = pretty_print_seconds(t1_iter - t0_iter)
+                        stderr('Iteration time: %s\n' % time_str)
 
     def predict_parses(
             self,

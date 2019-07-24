@@ -148,6 +148,16 @@ def read_parse_label_file(path):
     return text, pos_label, parse_label
 
 
+# TODO: For Evan
+def read_sts_file(path):
+    sts_s1_text = []
+    sts_s1_text = []
+    sts_label = []
+
+    # COMPUTE THESE FROM FILE AT PATH
+
+    return sts_s1_text, sts_s1_text, sts_label
+
 def print_interlinearized(lines, max_tokens=20):
     out = []
     for l1 in zip(*lines):
@@ -188,8 +198,15 @@ class Dataset(object):
         pos_label = self.files['train']['pos_label_src']
         parse_label = self.files['train']['parse_label_src']
 
-        self.char_list = get_char_set(parsing_text)
-        self.word_list = get_vocabulary(parsing_text)
+        self.initialize_sts_file(sts_train_path, 'train')
+        sts_s1_text = self.files['train']['sts_s1_text_src']
+        sts_s2_text = self.files['train']['sts_s2_text_src']
+        sts_label = self.files['train']['sts_label_src']
+
+        texts = parsing_text + sts_s1_text + sts_s2_text
+
+        self.char_list = get_char_set(texts)
+        self.word_list = get_vocabulary(texts)
         self.pos_label_list = get_pos_label_set(pos_label)
         self.parse_label_list = get_parse_label_set(parse_label)
         self.parse_ancestor_list = get_parse_ancestor_set(parse_label)
@@ -217,6 +234,17 @@ class Dataset(object):
 
         self.files[name] = new
 
+    def initialize_sts_file(self, path, name):
+        sts_s1_text, sts_s2_text, sts_label = read_sts_file(path)
+
+        new = {
+            'sts_s1_text_src': sts_s1_text,
+            'sts_s2_text_src': sts_s2_text,
+            'sts_label_src': sts_label
+        }
+
+        self.files[name] = new
+
     def cache_numeric_parsing_data(self, name='train', factor_parse_labels=True):
         self.files[name]['parsing_text'], self.files[name]['parsing_text_mask'] = self.symbols_to_padded_seqs(
             name=name,
@@ -230,6 +258,10 @@ class Dataset(object):
         else:
             self.files[name]['parse_depth'] = None
             self.files[name]['parse_label'] = self.symbols_to_padded_seqs(name=name, data_type='parse_label')
+
+    # TODO: For Evan
+    def cache_numeric_sts_data(self, name='train', factor_parse_labels=True):
+        return
 
     def get_seqs(self, name='train', data_type='parsing_text_src', as_words=True):
         data = self.files[name][data_type]
@@ -288,6 +320,12 @@ class Dataset(object):
         ancestor = self.int_to_parse_ancestor(i_ancestor)
         return ancestor if ancestor in ['None', '-BOS-', '-EOS-'] else '_'.join([depth, ancestor])
 
+    def sts_label_to_int(self, i):
+        return int(i)
+
+    def int_to_sts_label(self, i):
+        return str(i)
+
     def symbols_to_padded_seqs(
             self,
             name='train',
@@ -300,7 +338,7 @@ class Dataset(object):
             return_mask=False
     ):
         data_type_tmp = data_type + '_src'
-        if data_type.lower() == 'parsing_text':
+        if data_type.lower() in ['parsing_text', 'sts_s1_text', 'sts_s1_text']:
             if word_tokenized:
                 if char_tokenized:
                     as_words = True
@@ -349,6 +387,9 @@ class Dataset(object):
                 f = lambda x: x.split('_')[-1]
             else:
                 f = self.parse_ancestor_to_int
+        elif data_type.lower() == 'sts_label':
+            # TODO: For Evan
+            pass
         else:
             raise ValueError('Unrecognized data_type "%s".' % data_type)
 
@@ -411,6 +452,9 @@ class Dataset(object):
                 f = np.vectorize(self.ints_to_parse_joint_depth_on_all, otypes=[np.str])
             else:
                 f = np.vectorize(self.ints_to_parse_joint, otypes=[np.str])
+        elif data_type.lower() == 'sts_label':
+            # TODO: For Evan
+            pass
         else:
             raise ValueError('Unrecognized data_type "%s".' % data_type)
 
@@ -476,6 +520,26 @@ class Dataset(object):
 
             i += minibatch_size
 
+    def get_sts_data_feed(
+            self,
+            name,
+            minibatch_size=128,
+            randomize=False
+    ):
+        # TODO: For Evan
+        pass
+
+    def get_data_feed(
+            self,
+            name,
+            parsing=True,
+            sts=True,
+            minibatch_size=128,
+            randomize=False
+    ):
+        # TODO: Complete once STS data pipeline is finished
+        pass
+
     def get_n(self, name):
         return len(self.files[name]['parsing_text'])
 
@@ -505,6 +569,10 @@ class Dataset(object):
             out += '\n'
 
         return out
+
+    def sts_predictions_to_sequences(self, *args, **kwargs):
+        # TODO: For Evan
+        pass
 
     def pretty_print_parse_predictions(
             self,
@@ -566,7 +634,13 @@ class Dataset(object):
 
         return print_interlinearized(to_interlinearize)
 
-
+    def pretty_print_sts_predictions(
+            self,
+            *args,
+            **kwargs
+    ):
+        # TODO: For Evan
+        pass
 
 
 
