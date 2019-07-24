@@ -226,7 +226,7 @@ class DenseLayer(object):
             kernel_regularizer=None,
             bias_regularizer=None,
             activation=None,
-            batch_normalization_decay=0.9,
+            batch_normalization_decay=None,
             normalize_weights=False,
             reuse=None,
             session=None,

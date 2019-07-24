@@ -18,11 +18,11 @@ class Config(object):
         # Data
         data = config['data']
         self.parsing_train_data_path = data.get('parsing_train_data_path', './')
-        self.parsing_val_data_path = data.get('parsing_val_data_path', './')
+        self.parsing_dev_data_path = data.get('parsing_dev_data_path', './')
         self.parsing_test_data_path = data.get('parsing_test_data_path', './')
 
         self.sts_train_data_path = data.get('sts_train_data_path', './')
-        self.sts_val_data_path = data.get('sts_val_data_path', './')
+        self.sts_dev_data_path = data.get('sts_dev_data_path', './')
         self.sts_test_data_path = data.get('sts_test_data_path', './')
 
         # SETTINGS

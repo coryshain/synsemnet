@@ -33,25 +33,30 @@ if __name__ == '__main__':
         data_path += '_os'
     if p['root']:
         data_path += '_root'
-    data_path += '.obj'
+    data_path += '_train.obj'
 
     if not args.preprocess and os.path.exists(data_path):
         with open(data_path, 'rb') as f:
             stderr('Loading data...\n')
-            train_data = pickle.load(f)
+            data = pickle.load(f)
     else:
         stderr('Reading and processing data...\n')
-        train_data = Dataset(p.parsing_train_data_path, p.sts_train_data_path)
-        train_data.cache_data(factor_parse_labels=p['factor_parse_labels'])
+        data = Dataset(p.parsing_train_data_path, p.sts_train_data_path)
+        data.initialize_parsing_file(p.parsing_dev_data_path, 'dev')
         with open(data_path, 'wb') as f:
-            pickle.dump(train_data, f)
+            pickle.dump(data, f)
 
-    char_set = train_data.get_char_set()
-    pos_label_set = train_data.get_pos_label_set()
+    stderr('Caching numeric training data...\n')
+    data.cache_numeric_parsing_data(name='train', factor_parse_labels=p['factor_parse_labels'])
+    stderr('Caching numeric dev data...\n')
+    data.cache_numeric_parsing_data(name='dev', factor_parse_labels=p['factor_parse_labels'])
+
+    char_set = data.char_list
+    pos_label_set = data.pos_label_list
     if p['factor_parse_labels']:
-        parse_label_set = train_data.get_parse_ancestor_set()
+        parse_label_set = data.parse_ancestor_list
     else:
-        parse_label_set = train_data.get_parse_label_set()
+        parse_label_set = data.parse_label_lis
 
     m = SynSemNet(
         char_set,
@@ -60,5 +65,5 @@ if __name__ == '__main__':
         **kwargs
     )
 
-    m.fit(train_data, 1000)
+    m.fit(data, 1000)
 
