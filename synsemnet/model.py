@@ -35,13 +35,14 @@ class SynSemNet(object):
                              x in _INITIALIZATION_KWARGS])
     __doc__ = _doc_header + _doc_args + _doc_kwargs
 
-    def __init__(self, char_set, pos_label_set, parse_label_set, **kwargs):
+    def __init__(self, char_set, pos_label_set, parse_label_set, sts_label_set, **kwargs):
         for kwarg in SynSemNet._INITIALIZATION_KWARGS:
             setattr(self, kwarg.key, kwargs.pop(kwarg.key, kwarg.default_value))
 
         self.char_set = char_set
         self.pos_label_set = pos_label_set
         self.parse_label_set = parse_label_set
+        self.sts_label_set = sts_label_set
 
         self._initialize_session()
         self._initialize_metadata()
@@ -63,6 +64,7 @@ class SynSemNet(object):
         self.n_char = len(self.char_set)
         self.n_pos = len(self.pos_label_set)
         self.n_parse_label = len(self.parse_label_set)
+        self.n_sts_label = len(self.sts_label_set)
 
         if isinstance(self.syn_n_units, str):
             self.syn_encoder_units = [int(x) for x in self.syn_n_units.split()]
@@ -343,6 +345,7 @@ class SynSemNet(object):
                 self.sts_s2_character_embeddings_sem = tf.gather(self.semantic_character_embedding_matrix, self.sts_s2_characters)
 
                 # TODO: For Evan, placeholders for STS labels
+                self.sts_label = tf.placeholder(self.FLOAT_TF, shape=[None, None], name='sts_label')
 
     def _initialize_rnn_encoder(
             self,
@@ -481,8 +484,26 @@ class SynSemNet(object):
         with self.sess.as_default():
 
             # Define some new tensors for semantic predictions from both syntactic and semantic encoders.
+            self.sts_logits_sem = DenseLayer(
+                    training=self.training,
+                    units=self.n_sts_label,
+                    kernel_initializer='he_normal_initializer',
+                    activation=None,
+                    session=self.sess,
+                    name='sts_logits_sem'
+            )(self.sts_word_encodings_sem)
 
-            pass
+            self.sts_logits_syn = DenseLayer(
+                    training=self.training,
+                    units=self.n_sts_label,
+                    kernel_initializer='he_normal_initializer',
+                    activation=None,
+                    session=self.sess,
+                    name='sts_logits_syn'
+            )(self.sts_word_encodings_syn_adversarial)
+
+            self.sts_label_prediction_sem = tf.argmax(self.sts_label_logits_sem, axis=2)
+            self.sts_label_prediction_syn = tf.argmax(self.sts_label_logits_syn, axis=2)
 
     def _initialize_syntactic_objective(self, well_formedness_loss=False):
         with self.sess.as_default():
@@ -561,7 +582,18 @@ class SynSemNet(object):
             with self.sess.graph.as_default():
                 loss = 0.
 
-                # loss += SOME STUFF
+                self.sts_loss_sem = tf.losses.sparse_softmax_cross_entropy(
+                    self.sts_label,
+                    self.sts_label_logits_sem
+                    )
+
+                self.sts_loss_syn = tf.losses.sparse_softmax_cross_entropy(
+                    self.sts_label,
+                    self.sts_label_logits_syn
+                    )
+
+                loss += self.sts_loss_sem
+
 
                 return loss
 
@@ -692,13 +724,25 @@ class SynSemNet(object):
             
     # TODO: For Evan
     def _initialize_sts_log_entries(self, syn=True, sem=True):
-        pass
+        log_entries = []
+        if syn:
+            log_entries += ['sts_label_loss_syn']
+        if sem:
+            log_entries += ['sts_label_loss_sem']
+
+        return log_entries
 
     # TODO: For Evan
     def _initialize_sts_log_summaries(self, log_entries, collection='sts_losses'):
-        pass
+        with self.sess.as_default():
+                    with self.sess.graph.as_default():
+                        log_summaries = {}
 
-            
+                        for x in log_entries:
+                            log_summaries[x] = tf.placeholder(self.FLOAT_TF, shape=[], name=x + '_placeholder')
+                            tf.summary.scalar('%s/%s' % (collection, x), log_summaries[x], collections=[collection])
+
+                        return log_summaries
         
 
     ############################################################
@@ -873,14 +917,16 @@ class SynSemNet(object):
                             info_dict[k].append(batch_dict[k])
 
                     if verbose:
-                        values = [
-                            ('pos', batch_dict['pos_label_loss_syn']),
-                            ('label', batch_dict['parse_label_loss_syn'])
-                        ]
-                        if self.factor_parse_labels:
+                        values = []
+                        if return_syn_parsing_losses:
                             values += [
-                                ('depth', batch_dict['parse_depth_loss_syn'])
+                                ('pos', batch_dict['pos_label_loss_syn']),
+                                ('label', batch_dict['parse_label_loss_syn'])
                             ]
+                            if self.factor_parse_labels:
+                                values += [
+                                    ('depth', batch_dict['parse_depth_loss_syn'])
+                                ]
                         pb.update(i + 1, values=values)
 
                 for k in info_dict:
@@ -971,11 +1017,12 @@ class SynSemNet(object):
         tensor_names = []
         if syn:
             # Get STS loss tensors and names from syntactic encoder
-            pass
-
+            tensors += [self.sts_label_prediction_syn]
+            tensor_names += ['sts_label_prediction_syn']
         if sem:
             # Get STS loss tensors and names from semantic encoder
-            pass
+            tensors += [self.sts_label_prediction_sem]
+            tensor_names += ['sts_label_prediction_sem']
 
         return tensors, tensor_names
 
@@ -985,11 +1032,12 @@ class SynSemNet(object):
         tensor_names = []
         if syn:
             # Get STS prediction tensors and names from syntactic encoder
-            pass
-
+            tensors += [self.sts_label_prediction_syn]
+            tensor_names += ['sts_label_prediction_syn']
         if sem:
             # Get STS prediction tensors and names from semantic encoder
-            pass
+            tensors += [self.sts_label_prediction_sem]
+            tensor_names += ['sts_label_predition_sem']
 
         return tensors, tensor_names
 
@@ -1313,83 +1361,122 @@ class SynSemNet(object):
                         time_str = pretty_print_seconds(t1_iter - t0_iter)
                         stderr('Iteration time: %s\n' % time_str)
 
-    def predict_parses(
+    # TODO: Add STS predictions
+    def predict(
             self,
             data,
-            encoder_type='syn',
-            output_type='trees'
+            data_name='dev',
+            from_syn=True,
+            from_sem=True,
+            verbose=True,
     ):
         with self.sess.as_default():
             with self.sess.graph.as_default():
-                data_feed_train = data.get_parsing_data_feed(
+                info_dict = self._run_batches(
+                    data,
+                    data_name=data_name,
                     minibatch_size=self.eval_minibatch_size,
-                    randomize=False
+                    update=False,
+                    randomize=False,
+                    return_syn_parsing_losses=False,
+                    return_sem_parsing_losses=False,
+                    return_syn_parsing_predictions=from_syn,
+                    return_sem_parsing_predictions=from_sem,
+                    verbose=verbose
                 )
+                return info_dict
 
-                pos = None
-                depth = None
-                label = None
+    def predict_parses(
+            self,
+            data,
+            data_name='dev',
+            from_syn=True,
+            from_sem=True,
+            verbose=True,
+    ):
+        info_dict = self._run_batches(
+            data,
+            data_name=data_name,
+            minibatch_size=self.eval_minibatch_size,
+            update=False,
+            randomize=False,
+            return_syn_parsing_losses=False,
+            return_sem_parsing_losses=False,
+            return_syn_parsing_predictions=from_syn,
+            return_sem_parsing_predictions=from_sem,
+            verbose=verbose
+        )
 
-
-                for i, batch in enumerate(data_feed_train):
-                    syn_text_batch = batch['syn_text']
-                    syn_text_mask_batch = batch['syn_text_mask']
-
-                    fd_minibatch = {
-                        self.parsing_characters: syn_text_batch,
-                        self.parsing_character_mask: syn_text_mask_batch
-                    }
-
-                    to_run = [
-                        getattr(self, 'pos_label_prediction_from_%s' % encoder_type),
-                        getattr(self, 'parse_label_prediction_from_%s' % encoder_type)
-                    ]
-                    to_run_names = [
-                        'pos_label_prediction_from_%s' % encoder_type,
-                        'parse_label_prediction_from_%s' % encoder_type
-                    ]
+    def get_parse_seqs(
+            self,
+            data,
+            info_dict
+    ):
+        parse_seqs = {}
+        encoder = ['syn', 'sem']
+        label_type = ['true', 'prediction']
+        for e in encoder:
+            for l in label_type:
+                if 'pos_label_%s_syn' % l in info_dict:
+                    if not e in parse_seqs:
+                        parse_seqs[e] = {}
+                    numeric_chars = info_dict['parsing_text']
+                    numeric_pos = info_dict['pos_label_%s_syn' % l]
+                    numeric_parse_label = info_dict['parse_label_%s_syn' % l]
+                    mask = info_dict['parsing_text_mask']
                     if self.factor_parse_labels:
-                        to_run += [
-                            getattr(self, 'parse_depth_prediction_from_%s' % encoder_type)
-                        ]
-                        to_run_names += [
-                            'parse_depth_prediction_from_%s' % encoder_type
-                        ]
+                        numeric_depth = info_dict['parse_depth_%s_syn' % l]
+                    else:
+                        numeric_depth = None
 
-                    out = self.sess.run(
-                        to_run,
-                        feed_dict=fd_minibatch
+                    seqs = data.parse_predictions_to_sequences(
+                        numeric_chars,
+                        numeric_pos,
+                        numeric_parse_label,
+                        numeric_depth=numeric_depth,
+                        mask=mask
                     )
 
-                    info_dict = {}
-                    for j, x in enumerate(out):
-                        info_dict[to_run_names[j]] = x
+        return parse_seqs
+    
+    def print_parse_seqs(
+            self,
+            data,
+            data_name='dev',
+            from_syn=True,
+            from_sem=True,
+            outdir=None,
+            name=None,
+            verbose=True
+    ):
+        if outdir is None:
+            outdir = self.outdir
 
-                    if pos is None:
-                        pos = [info_dict['pos_label_prediction_from_%s' % encoder_type]]
-                    else:
-                        pos.append(info_dict['pos_label_prediction_from_%s' % encoder_type])
-                    if label is None:
-                        label = [info_dict['parse_label_prediction_from_%s' % encoder_type]]
-                    else:
-                        label.append(info_dict['parse_label_prediction_from_%s' % encoder_type])
-                    if depth is None:
-                        depth = [info_dict['parse_depth_prediction_from_%s' % encoder_type]]
-                    else:
-                        depth.append(info_dict['parse_depth_prediction_from_%s' % encoder_type])
+        seqs = self.get_parse_seqs(
+            data,
+            data_name=data_name,
+            from_syn=from_syn,
+            from_sem=from_sem,
+            verbose=verbose
+        )
 
-                pos = np.concatenate(pos, axis=0)
-                label = np.concatenate(label, axis=0)
-                depth = np.concatenate(depth, axis=0)
+        if from_syn:
+            if name is not None:
+                cur_name = name + '_syn_parse_seqs.txt'
+            else:
+                cur_name = 'syn_parse_seqs.txt'
 
-                return {'pos_label': pos, 'parse_label': label, 'parse_depth': depth}
-                if output_type.lower() == 'numeric':
-                    return {'pos_label': pos, 'parse_label': label, 'parse_depth': depth}
-                elif output_type.lower() == 'sequence':
-                    return
-                elif output_type.lower() == 'trees':
-                    return
+            with open(outdir + '/' + cur_name, 'w') as f:
+                f.write(seqs['syn'])
 
+        if from_sem:
+            if name is not None:
+                cur_name = name + '_sem_parse_seqs.txt'
+            else:
+                cur_name = 'sem_parse_seqs.txt'
+
+            with open(outdir + '/' + cur_name, 'w') as f:
+                f.write(seqs['sem'])
 
 
 

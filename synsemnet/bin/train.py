@@ -14,7 +14,7 @@ if __name__ == '__main__':
     Trains a SynSemNet model from a config file.
     ''')
     argparser.add_argument('config', help='Path to configuration file.')
-    argparser.add_argument('-p', '--preprocess', action='store_true', help='Preprocess data (even if saved data object exists in the model directory)')
+    argparser.add_argument('-P', '--preprocess', action='store_true', help='Preprocess data (even if saved data object exists in the model directory)')
     argparser.add_argument('-c', '--force_cpu', action='store_true', help='Do not use GPU. If not specified, GPU usage defaults to the value of the **use_gpu_if_available** configuration parameter.')
     args = argparser.parse_args()
 
@@ -33,7 +33,7 @@ if __name__ == '__main__':
         data_path += '_os'
     if p['root']:
         data_path += '_root'
-    data_path += '_train.obj'
+    data_path += '.obj'
 
     if not args.preprocess and os.path.exists(data_path):
         with open(data_path, 'rb') as f:
@@ -46,7 +46,7 @@ if __name__ == '__main__':
         with open(data_path, 'wb') as f:
             pickle.dump(data, f)
 
-    stderr('Caching numeric training data...\n')
+    stderr('Caching numeric train data...\n')
     data.cache_numeric_parsing_data(name='train', factor_parse_labels=p['factor_parse_labels'])
     stderr('Caching numeric dev data...\n')
     data.cache_numeric_parsing_data(name='dev', factor_parse_labels=p['factor_parse_labels'])
