@@ -35,13 +35,14 @@ class SynSemNet(object):
                              x in _INITIALIZATION_KWARGS])
     __doc__ = _doc_header + _doc_args + _doc_kwargs
 
-    def __init__(self, char_set, pos_label_set, parse_label_set, **kwargs):
+    def __init__(self, char_set, pos_label_set, parse_label_set, sts_label_set, **kwargs):
         for kwarg in SynSemNet._INITIALIZATION_KWARGS:
             setattr(self, kwarg.key, kwargs.pop(kwarg.key, kwarg.default_value))
 
         self.char_set = char_set
         self.pos_label_set = pos_label_set
         self.parse_label_set = parse_label_set
+        self.sts_label_set = sts_label_set
 
         self._initialize_session()
         self._initialize_metadata()
@@ -63,6 +64,7 @@ class SynSemNet(object):
         self.n_char = len(self.char_set)
         self.n_pos = len(self.pos_label_set)
         self.n_parse_label = len(self.parse_label_set)
+        self.n_sts_label = len(self.sts_label_set)
 
         if isinstance(self.syn_n_units, str):
             self.syn_encoder_units = [int(x) for x in self.syn_n_units.split()]
@@ -343,6 +345,7 @@ class SynSemNet(object):
                 self.sts_s2_character_embeddings_sem = tf.gather(self.semantic_character_embedding_matrix, self.sts_s2_characters)
 
                 # TODO: For Evan, placeholders for STS labels
+                self.sts_label = tf.placeholder(self.FLOAT_TF, shape=[None, None], name='sts_label')
 
     def _initialize_rnn_encoder(
             self,
@@ -481,8 +484,26 @@ class SynSemNet(object):
         with self.sess.as_default():
 
             # Define some new tensors for semantic predictions from both syntactic and semantic encoders.
+            self.sts_logits_sem = DenseLayer(
+                    training=self.training,
+                    units=self.n_sts_label,
+                    kernel_initializer='he_normal_initializer',
+                    activation=None,
+                    session=self.sess,
+                    name='sts_logits_sem'
+            )(self.sts_word_encodings_sem)
 
-            pass
+            self.sts_logits_syn = DenseLayer(
+                    training=self.training,
+                    units=self.n_sts_label,
+                    kernel_initializer='he_normal_initializer',
+                    activation=None,
+                    session=self.sess,
+                    name='sts_logits_syn'
+            )(self.sts_word_encodings_syn_adversarial)
+
+            self.sts_label_prediction_sem = tf.argmax(self.sts_label_logits_sem, axis=2)
+            self.sts_label_prediction_syn = tf.argmax(self.sts_label_logits_syn, axis=2)
 
     def _initialize_syntactic_objective(self, well_formedness_loss=False):
         with self.sess.as_default():
@@ -561,7 +582,18 @@ class SynSemNet(object):
             with self.sess.graph.as_default():
                 loss = 0.
 
-                # loss += SOME STUFF
+                self.sts_loss_sem = tf.losses.sparse_softmax_cross_entropy(
+                    self.sts_label,
+                    self.sts_label_logits_sem
+                    )
+
+                self.sts_loss_syn = tf.losses.sparse_softmax_cross_entropy(
+                    self.sts_label,
+                    self.sts_label_logits_syn
+                    )
+
+                loss += self.sts_loss_sem
+
 
                 return loss
 
@@ -692,13 +724,25 @@ class SynSemNet(object):
             
     # TODO: For Evan
     def _initialize_sts_log_entries(self, syn=True, sem=True):
-        pass
+        log_entries = []
+        if syn:
+            log_entries += ['sts_label_loss_syn']
+        if sem:
+            log_entries += ['sts_label_loss_sem']
+
+        return log_entries
 
     # TODO: For Evan
     def _initialize_sts_log_summaries(self, log_entries, collection='sts_losses'):
-        pass
+        with self.sess.as_default():
+                    with self.sess.graph.as_default():
+                        log_summaries = {}
 
-            
+                        for x in log_entries:
+                            log_summaries[x] = tf.placeholder(self.FLOAT_TF, shape=[], name=x + '_placeholder')
+                            tf.summary.scalar('%s/%s' % (collection, x), log_summaries[x], collections=[collection])
+
+                        return log_summaries
         
 
     ############################################################
@@ -973,11 +1017,12 @@ class SynSemNet(object):
         tensor_names = []
         if syn:
             # Get STS loss tensors and names from syntactic encoder
-            pass
-
+            tensors += [self.sts_label_prediction_syn]
+            tensor_names += ['sts_label_prediction_syn']
         if sem:
             # Get STS loss tensors and names from semantic encoder
-            pass
+            tensors += [self.sts_label_prediction_sem]
+            tensor_names += ['sts_label_prediction_sem']
 
         return tensors, tensor_names
 
@@ -987,11 +1032,12 @@ class SynSemNet(object):
         tensor_names = []
         if syn:
             # Get STS prediction tensors and names from syntactic encoder
-            pass
-
+            tensors += [self.sts_label_prediction_syn]
+            tensor_names += ['sts_label_prediction_syn']
         if sem:
             # Get STS prediction tensors and names from semantic encoder
-            pass
+            tensors += [self.sts_label_prediction_sem]
+            tensor_names += ['sts_label_predition_sem']
 
         return tensors, tensor_names
 
