@@ -559,7 +559,7 @@ class Dataset(object):
         if numeric_depth is None:
             label = self.padded_seqs_to_symbols(numeric_label, 'parse_label', mask=word_mask, as_list=True)
         else:
-            label = self.padded_seqs_to_symbols([numeric_label, numeric_depth], 'parse_joint', mask=word_mask, as_list=True)
+            label = self.padded_seqs_to_symbols([numeric_depth, numeric_label], 'parse_joint', mask=word_mask, as_list=True, depth_on_all=False)
 
         out = ''
 

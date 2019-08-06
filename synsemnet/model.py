@@ -873,14 +873,16 @@ class SynSemNet(object):
                             info_dict[k].append(batch_dict[k])
 
                     if verbose:
-                        values = [
-                            ('pos', batch_dict['pos_label_loss_syn']),
-                            ('label', batch_dict['parse_label_loss_syn'])
-                        ]
-                        if self.factor_parse_labels:
+                        values = []
+                        if return_syn_parsing_losses:
                             values += [
-                                ('depth', batch_dict['parse_depth_loss_syn'])
+                                ('pos', batch_dict['pos_label_loss_syn']),
+                                ('label', batch_dict['parse_label_loss_syn'])
                             ]
+                            if self.factor_parse_labels:
+                                values += [
+                                    ('depth', batch_dict['parse_depth_loss_syn'])
+                                ]
                         pb.update(i + 1, values=values)
 
                 for k in info_dict:
@@ -1313,83 +1315,122 @@ class SynSemNet(object):
                         time_str = pretty_print_seconds(t1_iter - t0_iter)
                         stderr('Iteration time: %s\n' % time_str)
 
-    def predict_parses(
+    # TODO: Add STS predictions
+    def predict(
             self,
             data,
-            encoder_type='syn',
-            output_type='trees'
+            data_name='dev',
+            from_syn=True,
+            from_sem=True,
+            verbose=True,
     ):
         with self.sess.as_default():
             with self.sess.graph.as_default():
-                data_feed_train = data.get_parsing_data_feed(
+                info_dict = self._run_batches(
+                    data,
+                    data_name=data_name,
                     minibatch_size=self.eval_minibatch_size,
-                    randomize=False
+                    update=False,
+                    randomize=False,
+                    return_syn_parsing_losses=False,
+                    return_sem_parsing_losses=False,
+                    return_syn_parsing_predictions=from_syn,
+                    return_sem_parsing_predictions=from_sem,
+                    verbose=verbose
                 )
+                return info_dict
 
-                pos = None
-                depth = None
-                label = None
+    def predict_parses(
+            self,
+            data,
+            data_name='dev',
+            from_syn=True,
+            from_sem=True,
+            verbose=True,
+    ):
+        info_dict = self._run_batches(
+            data,
+            data_name=data_name,
+            minibatch_size=self.eval_minibatch_size,
+            update=False,
+            randomize=False,
+            return_syn_parsing_losses=False,
+            return_sem_parsing_losses=False,
+            return_syn_parsing_predictions=from_syn,
+            return_sem_parsing_predictions=from_sem,
+            verbose=verbose
+        )
 
-
-                for i, batch in enumerate(data_feed_train):
-                    syn_text_batch = batch['syn_text']
-                    syn_text_mask_batch = batch['syn_text_mask']
-
-                    fd_minibatch = {
-                        self.parsing_characters: syn_text_batch,
-                        self.parsing_character_mask: syn_text_mask_batch
-                    }
-
-                    to_run = [
-                        getattr(self, 'pos_label_prediction_from_%s' % encoder_type),
-                        getattr(self, 'parse_label_prediction_from_%s' % encoder_type)
-                    ]
-                    to_run_names = [
-                        'pos_label_prediction_from_%s' % encoder_type,
-                        'parse_label_prediction_from_%s' % encoder_type
-                    ]
+    def get_parse_seqs(
+            self,
+            data,
+            info_dict
+    ):
+        parse_seqs = {}
+        encoder = ['syn', 'sem']
+        label_type = ['true', 'prediction']
+        for e in encoder:
+            for l in label_type:
+                if 'pos_label_%s_syn' % l in info_dict:
+                    if not e in parse_seqs:
+                        parse_seqs[e] = {}
+                    numeric_chars = info_dict['parsing_text']
+                    numeric_pos = info_dict['pos_label_%s_syn' % l]
+                    numeric_parse_label = info_dict['parse_label_%s_syn' % l]
+                    mask = info_dict['parsing_text_mask']
                     if self.factor_parse_labels:
-                        to_run += [
-                            getattr(self, 'parse_depth_prediction_from_%s' % encoder_type)
-                        ]
-                        to_run_names += [
-                            'parse_depth_prediction_from_%s' % encoder_type
-                        ]
+                        numeric_depth = info_dict['parse_depth_%s_syn' % l]
+                    else:
+                        numeric_depth = None
 
-                    out = self.sess.run(
-                        to_run,
-                        feed_dict=fd_minibatch
+                    seqs = data.parse_predictions_to_sequences(
+                        numeric_chars,
+                        numeric_pos,
+                        numeric_parse_label,
+                        numeric_depth=numeric_depth,
+                        mask=mask
                     )
 
-                    info_dict = {}
-                    for j, x in enumerate(out):
-                        info_dict[to_run_names[j]] = x
+        return parse_seqs
+    
+    def print_parse_seqs(
+            self,
+            data,
+            data_name='dev',
+            from_syn=True,
+            from_sem=True,
+            outdir=None,
+            name=None,
+            verbose=True
+    ):
+        if outdir is None:
+            outdir = self.outdir
 
-                    if pos is None:
-                        pos = [info_dict['pos_label_prediction_from_%s' % encoder_type]]
-                    else:
-                        pos.append(info_dict['pos_label_prediction_from_%s' % encoder_type])
-                    if label is None:
-                        label = [info_dict['parse_label_prediction_from_%s' % encoder_type]]
-                    else:
-                        label.append(info_dict['parse_label_prediction_from_%s' % encoder_type])
-                    if depth is None:
-                        depth = [info_dict['parse_depth_prediction_from_%s' % encoder_type]]
-                    else:
-                        depth.append(info_dict['parse_depth_prediction_from_%s' % encoder_type])
+        seqs = self.get_parse_seqs(
+            data,
+            data_name=data_name,
+            from_syn=from_syn,
+            from_sem=from_sem,
+            verbose=verbose
+        )
 
-                pos = np.concatenate(pos, axis=0)
-                label = np.concatenate(label, axis=0)
-                depth = np.concatenate(depth, axis=0)
+        if from_syn:
+            if name is not None:
+                cur_name = name + '_syn_parse_seqs.txt'
+            else:
+                cur_name = 'syn_parse_seqs.txt'
 
-                return {'pos_label': pos, 'parse_label': label, 'parse_depth': depth}
-                if output_type.lower() == 'numeric':
-                    return {'pos_label': pos, 'parse_label': label, 'parse_depth': depth}
-                elif output_type.lower() == 'sequence':
-                    return
-                elif output_type.lower() == 'trees':
-                    return
+            with open(outdir + '/' + cur_name, 'w') as f:
+                f.write(seqs['syn'])
 
+        if from_sem:
+            if name is not None:
+                cur_name = name + '_sem_parse_seqs.txt'
+            else:
+                cur_name = 'sem_parse_seqs.txt'
+
+            with open(outdir + '/' + cur_name, 'w') as f:
+                f.write(seqs['sem'])
 
 
 
