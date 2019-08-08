@@ -417,6 +417,65 @@ class SynSemNet(object):
 
                 return out
 
+    def _initialize_cnn_encoder(
+            self,
+            n_layers,
+            kernel_size,
+            n_units,
+            padding='valid',
+            project_encodings=True,
+            max_pooling_over_time=True,
+            name='word_cnn'
+    ):
+        with self.sess.as_default():
+            with self.sess.graph.as_default():
+                out = []
+                for l in range(n_layers):
+                    kernel_size_cur = kernel_size[l]
+                    units_cur = n_units[l]
+                    word_encoder_cnn = Conv1DLayer(
+                        training=self.training,
+                        kernel_size=kernel_size_cur,
+                        n_filters=units_cur,
+                        activation=self.activation,
+                        padding=padding,
+                        name=name + '_l%d' % l,
+                        session=self.sess
+                    )
+
+                    out.append(make_lambda(word_encoder_cnn, session=self.sess))
+
+                    if max_pooling_over_time:
+                        out.append(make_lambda(lambda x: tf.reduce_max(x, axis=1), session=self.sess))
+
+                if project_encodings:
+                    if self.resnet_n_layers_inner:
+                        projection = DenseResidualLayer(
+                            training=self.training,
+                            units=n_units[-1],
+                            kernel_initializer='identity_initializer',
+                            layers_inner=self.resnet_n_layers_inner,
+                            activation_inner=self.activation,
+                            activation=None,
+                            project_inputs=False,
+                            session=self.sess,
+                            name=name + '_projection'
+                        )
+                    else:
+                        projection = DenseLayer(
+                            training=self.training,
+                            units=n_units[-1],
+                            kernel_initializer='identity_initializer',
+                            activation=None,
+                            session=self.sess,
+                            name=name + '_projection'
+                        )
+                    out.append(make_lambda(projection, session=self.sess))
+
+                out = compose_lambdas(out)
+
+                return out
+
     def _initialize_word_embedding(self, inputs, encoder, character_mask=None):
         with self.sess.as_default():
             with self.sess.graph.as_default():

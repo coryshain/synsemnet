@@ -1,5 +1,7 @@
 import re
+import numpy as np
 import tensorflow as tf
+from tensorflow.python.layers.utils import conv_output_length
 
 
 parse_initializer = re.compile('(.*_initializer)(_(.*))?')
@@ -12,6 +14,17 @@ def get_session(session):
         sess = session
 
     return sess
+
+
+def make_clipped_linear_activation(lb=None, ub=None, session=None):
+    session = get_session(session)
+    with session.as_default():
+        with session.graph.as_default():
+            if lb is None:
+                lb = -np.inf
+            if ub is None:
+                ub = np.inf
+            return lambda x: tf.clip_by_value(x, lb, ub)
 
 
 def get_activation(activation, session=None, training=True, from_logits=True, sample_at_train=True, sample_at_eval=False):
@@ -94,6 +107,24 @@ def get_activation(activation, session=None, training=True, from_logits=True, sa
     return out
 
 
+def round_straight_through(x, session=None):
+    session = get_session(session)
+    with session.as_default():
+        with session.graph.as_default():
+            fw_op = tf.round
+            bw_op = tf.identity
+            return replace_gradient(fw_op, bw_op, session=session)(x)
+
+
+def bernoulli_straight_through(x, session=None):
+    session = get_session(session)
+    with session.as_default():
+        with session.graph.as_default():
+            fw_op = lambda x: tf.ceil(x - tf.random_uniform(tf.shape(x)))
+            bw_op = tf.identity
+            return replace_gradient(fw_op, bw_op, session=session)(x)
+
+
 def get_initializer(initializer, session=None):
     session = get_session(session)
     with session.as_default():
@@ -145,6 +176,20 @@ def get_regularizer(init, scale=None, session=None):
                 out = tf.contrib.layers.l2_regularizer(scale=init)
             else:
                 raise ValueError('Unrecognized value "%s" for init parameter of get_regularizer()' %init)
+
+            return out
+
+
+def get_dropout(rate, training=True, noise_shape=None, session=None):
+    session = get_session(session)
+    with session.as_default():
+        with session.graph.as_default():
+            if rate:
+                def make_dropout(rate):
+                    return lambda x: tf.layers.dropout(x, rate=rate, noise_shape=noise_shape, training=training)
+                out = make_dropout(rate)
+            else:
+                out = lambda x: x
 
             return out
 
@@ -470,6 +515,197 @@ class DenseResidualLayer(object):
 
     def call(self, *args, **kwargs):
         self.__call__(*args, **kwargs)
+
+
+class Conv1DLayer(object):
+
+    def __init__(
+            self,
+            kernel_size,
+            training=True,
+            n_filters=None,
+            stride=1,
+            padding='valid',
+            use_bias=True,
+            activation=None,
+            dropout=None,
+            batch_normalization_decay=0.9,
+            reuse=None,
+            session=None,
+            name=None
+    ):
+        self.session = get_session(session)
+        with session.as_default():
+            with session.graph.as_default():
+                self.training = training
+                self.n_filters = n_filters
+                self.kernel_size = kernel_size
+                self.stride = stride
+                self.padding = padding
+                self.use_bias = use_bias
+                self.activation = get_activation(activation, session=self.session, training=self.training)
+                self.dropout = get_dropout(dropout, session=self.session, noise_shape=None, training=self.training)
+                self.batch_normalization_decay = batch_normalization_decay
+                self.reuse = reuse
+                self.name = name
+
+                self.conv_1d_layer = None
+
+                self.built = False
+
+    def build(self, inputs):
+        if not self.built:
+            with self.session.as_default():
+                with self.session.graph.as_default():
+                    if self.n_filters is None:
+                        out_dim = inputs.shape[-1]
+                    else:
+                        out_dim = self.n_filters
+
+                    self.conv_1d_layer = tf.keras.layers.Conv1D(
+                        out_dim,
+                        self.kernel_size,
+                        padding=self.padding,
+                        strides=self.stride,
+                        use_bias=self.use_bias,
+                        name=self.name
+                    )
+
+            self.built = True
+
+    def __call__(self, inputs):
+        if not self.built:
+            self.build(inputs)
+
+        with self.session.as_default():
+            with self.session.graph.as_default():
+                H = inputs
+
+                H = self.conv_1d_layer(H)
+
+                if self.batch_normalization_decay:
+                    H = tf.contrib.layers.batch_norm(
+                        H,
+                        decay=self.batch_normalization_decay,
+                        center=True,
+                        scale=True,
+                        zero_debias_moving_mean=True,
+                        is_training=self.training,
+                        updates_collections=None,
+                        reuse=self.reuse,
+                        scope=self.name
+                    )
+
+                if self.activation is not None:
+                    H = self.activation(H)
+
+                return H
+
+
+class Conv1DResidualLayer(object):
+    def __init__(
+            self,
+            kernel_size,
+            training=True,
+            n_filters=None,
+            stride=1,
+            padding='valid',
+            use_bias=True,
+            layers_inner=3,
+            activation=None,
+            activation_inner=None,
+            batch_normalization_decay=0.9,
+            project_inputs=False,
+            n_timesteps=None,
+            n_input_features=None,
+            reuse=None,
+            session=None,
+            name=None
+    ):
+        self.session = get_session(session)
+
+        self.training = training
+        self.n_filters = n_filters
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.padding = padding
+        self.use_bias = use_bias
+        self.layers_inner = layers_inner
+        self.activation = get_activation(activation, session=self.session, training=self.training)
+        self.activation_inner = get_activation(activation_inner, session=self.session, training=self.training)
+        self.batch_normalization_decay = batch_normalization_decay
+        self.project_inputs = project_inputs
+        self.n_timesteps = n_timesteps
+        self.n_input_features = n_input_features
+        self.reuse = reuse
+        self.name = name
+
+        self.conv_1d_layers = None
+        self.projection = None
+
+        self.built = False
+
+    def build(self, inputs):
+        if not self.built:
+            if self.n_filters is None:
+                out_dim = inputs.shape[-1]
+            else:
+                out_dim = self.n_filters
+
+            self.built = True
+
+            self.conv_1d_layers = []
+
+            with self.session.as_default():
+                with self.session.graph.as_default():
+
+                    conv_output_shapes = [[int(inputs.shape[1]), int(inputs.shape[2])]]
+
+                    for i in range(self.layers_inner):
+                        if isinstance(self.stride, list):
+                            cur_strides = self.stride[i]
+                        else:
+                            cur_strides = self.stride
+
+                        if self.name:
+                            name = self.name + '_i%d' % i
+                        else:
+                            name = None
+
+                        l = tf.keras.layers.Conv1D(
+                            out_dim,
+                            self.kernel_size,
+                            padding=self.padding,
+                            strides=cur_strides,
+                            use_bias=self.use_bias,
+                            name=name
+                        )
+
+                        if self.padding in ['causal', 'same'] and self.stride == 1:
+                            output_shape = conv_output_shapes[-1]
+                        else:
+                            output_shape = [
+                                conv_output_length(
+                                    x,
+                                    self.kernel_size,
+                                    self.padding,
+                                    self.stride
+                                ) for x in conv_output_shapes[-1]
+                            ]
+
+                        conv_output_shapes.append(output_shape)
+
+                        self.conv_1d_layers.append(l)
+
+                    self.conv_output_shapes = conv_output_shapes
+
+                    if self.project_inputs:
+                        self.projection = tf.keras.layers.Dense(
+                            self.conv_output_shapes[-1][0] * out_dim,
+                            input_shape=[self.conv_output_shapes[0][0] * self.conv_output_shapes[0][1]]
+                        )
+
+            self.built = True
 
 
 class RNNLayer(object):

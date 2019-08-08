@@ -433,30 +433,32 @@ class Dataset(object):
     ):
         if data_type.lower().endswith('text'):
             if char_tokenized:
-                f = np.vectorize(self.int_to_char, otypes=[np.str])
+                f = self.int_to_char
             else:
                 if word_tokenized:
-                    f = np.vectorize(self.int_to_word, otypes=[np.str])
+                    f = self.int_to_word
                 else:
                     raise ValueError('Text must be tokenized at the word or character level (or both).')
         elif data_type.lower() == 'pos_label':
-            f = np.vectorize(self.int_to_pos_label, otypes=[np.str])
+            f = self.int_to_pos_label
         elif data_type.lower() == 'parse_label':
-            f = np.vectorize(self.int_to_parse_label, otypes=[np.str])
+            f = self.int_to_parse_label
         elif data_type.lower() == 'parse_depth':
-            f = np.vectorize(self.int_to_parse_depth, otypes=[np.str])
+            f = self.int_to_parse_depth
         elif data_type.lower() == 'parse_ancestor':
-            f = np.vectorize(self.int_to_parse_ancestor, otypes=[np.str])
+            f = self.int_to_parse_ancestor
         elif data_type.lower() == 'parse_joint':
             if depth_on_all:
-                f = np.vectorize(self.ints_to_parse_joint_depth_on_all, otypes=[np.str])
+                f = self.ints_to_parse_joint_depth_on_all
             else:
-                f = np.vectorize(self.ints_to_parse_joint, otypes=[np.str])
+                f = self.ints_to_parse_joint
         elif data_type.lower() == 'sts_label':
             # TODO: For Evan
             pass
         else:
             raise ValueError('Unrecognized data_type "%s".' % data_type)
+
+        f = np.vectorize(f, otypes=[np.str])
 
         if data_type.lower() == 'parse_joint':
             data = f(*data)
@@ -529,7 +531,7 @@ class Dataset(object):
         # TODO: For Evan
         pass
 
-    def get_data_feed(
+    def get_training_data_feed(
             self,
             name,
             parsing=True,
