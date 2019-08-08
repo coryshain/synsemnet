@@ -128,7 +128,7 @@ class SynSemNet(object):
         GRADIENT_FLIP_SCALE = 1.
 
         # Construct encoders
-        self.syntactic_character_rnn = self._initialize_rnn_encoder(
+        self.syntactic_character_rnn = self._initialize_rnn_module(
             1,
             [self.word_emb_dim],
             bidirectional=self.bidirectional,
@@ -136,7 +136,7 @@ class SynSemNet(object):
             return_sequences=False,
             name='syntactic_character_rnn'
         )
-        self.semantic_character_rnn = self._initialize_rnn_encoder(
+        self.semantic_character_rnn = self._initialize_rnn_module(
             1,
             [self.word_emb_dim],
             bidirectional=self.bidirectional,
@@ -144,7 +144,7 @@ class SynSemNet(object):
             return_sequences=False,
             name='semantic_character_rnn'
         )
-        self.syntactic_word_encoder = self._initialize_rnn_encoder(
+        self.syntactic_word_encoder = self._initialize_rnn_module(
             self.syn_n_layers,
             self.syn_encoder_units,
             bidirectional=self.bidirectional,
@@ -152,7 +152,7 @@ class SynSemNet(object):
             return_sequences=True,
             name='syntactic_word_encoder'
         )
-        self.semantic_word_encoder = self._initialize_rnn_encoder(
+        self.semantic_word_encoder = self._initialize_rnn_module(
             self.sem_n_layers,
             self.sem_encoder_units,
             bidirectional=self.bidirectional,
@@ -347,7 +347,7 @@ class SynSemNet(object):
                 # TODO: For Evan, placeholders for STS labels
                 self.sts_label = tf.placeholder(self.FLOAT_TF, shape=[None], name='sts_label')
 
-    def _initialize_rnn_encoder(
+    def _initialize_rnn_module(
             self,
             n_layers,
             n_units,
@@ -417,7 +417,7 @@ class SynSemNet(object):
 
                 return out
 
-    def _initialize_cnn_encoder(
+    def _initialize_cnn_module(
             self,
             n_layers,
             kernel_size,
