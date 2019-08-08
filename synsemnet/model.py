@@ -345,7 +345,7 @@ class SynSemNet(object):
                 self.sts_s2_character_embeddings_sem = tf.gather(self.semantic_character_embedding_matrix, self.sts_s2_characters)
 
                 # TODO: For Evan, placeholders for STS labels
-                self.sts_label = tf.placeholder(self.FLOAT_TF, shape=[None, None], name='sts_label')
+                self.sts_label = tf.placeholder(self.FLOAT_TF, shape=[None], name='sts_label')
 
     def _initialize_rnn_encoder(
             self,
@@ -543,6 +543,19 @@ class SynSemNet(object):
         with self.sess.as_default():
 
             # Define some new tensors for semantic predictions from both syntactic and semantic encoders.
+            #sts predictions from semantic encoders
+            self.sts_difference_feats_sem = tf.subtract(
+                    self.sts_s1_word_encodings_sem, 
+                    self.sts_s2_word_encodings_sem, 
+                    name='sts_difference_feats_sem')
+            self.sts_product_feats_sem = tf.multiply(
+                    self.sts_s1_word_encodings_sem, 
+                    self.sts_s2_word_encodings_sem, 
+                    name='sts_product_feats_sem')
+            self.sts_features_sem = tf.concat(
+                    values=[self.sts_difference_feats_sem, self.sts_product_feats_sem], 
+                    axis=1, 
+                    name='sts_features_sem')
             self.sts_logits_sem = DenseLayer(
                     training=self.training,
                     units=self.n_sts_label,
@@ -550,8 +563,22 @@ class SynSemNet(object):
                     activation=None,
                     session=self.sess,
                     name='sts_logits_sem'
-            )(self.sts_word_encodings_sem)
+            )(self.sts_features_sem)
+            self.sts_label_prediction_sem = tf.argmax(self.sts_label_logits_sem, axis=2)
 
+            #sts predictions from syntactic encoders 
+            self.sts_difference_feats_syn = tf.subtract(
+                    self.sts_s1_word_encodings_syn_adversarial, 
+                    self.sts_s2_word_encodings_syn_adversarial, 
+                    name='sts_difference_feats_syn')
+            self.sts_product_feats_syn = tf.multiply(
+                    self.sts_s1_word_encodings_syn_adversarial, 
+                    self.sts_s2_word_encodings_syn_adversarial, 
+                    name='sts_product_feats_syn')
+            self.sts_features_syn = tf.concat(
+                    values=[self.sts_difference_feats_syn, self.sts_product_feats_syn], 
+                    axis=1, 
+                    name='sts_features_syn')
             self.sts_logits_syn = DenseLayer(
                     training=self.training,
                     units=self.n_sts_label,
@@ -559,9 +586,7 @@ class SynSemNet(object):
                     activation=None,
                     session=self.sess,
                     name='sts_logits_syn'
-            )(self.sts_word_encodings_syn_adversarial)
-
-            self.sts_label_prediction_sem = tf.argmax(self.sts_label_logits_sem, axis=2)
+            )(self.sts_features_syn)
             self.sts_label_prediction_syn = tf.argmax(self.sts_label_logits_syn, axis=2)
 
     def _initialize_syntactic_objective(self, well_formedness_loss=False):
