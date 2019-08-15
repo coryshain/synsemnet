@@ -262,8 +262,8 @@ class SynSemNet(object):
         # Construct losses
         with self.sess.as_default():
             with self.sess.graph.as_default():
-                self.loss = self._initialize_syntactic_objective()
-                self.loss += self._initialize_semantic_objective()
+                self.loss = self._initialize_parsing_objective()
+                self.loss += self._initialize_sts_objective()
 
         self._initialize_train_op()
         self._initialize_ema()
@@ -613,7 +613,7 @@ class SynSemNet(object):
             )(self.sts_features_syn_dense)
             self.sts_label_prediction_syn = tf.argmax(self.sts_label_logits_syn, axis=2)
 
-    def _initialize_syntactic_objective(self, well_formedness_loss=False):
+    def _initialize_parsing_objective(self, well_formedness_loss=False):
         with self.sess.as_default():
             with self.sess.graph.as_default():
                 loss = 0.
@@ -685,7 +685,7 @@ class SynSemNet(object):
                 return loss
 
     # TODO: For Evan
-    def _initialize_semantic_objective(self):
+    def _initialize_sts_objective(self):
         with self.sess.as_default():
             with self.sess.graph.as_default():
                 loss = 0.
