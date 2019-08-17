@@ -543,9 +543,9 @@ class SynSemNet(object):
         with self.sess.as_default():
             # Define some new tensors for semantic predictions from both syntactic and semantic encoders.
             #CNN for semantic encoder
-            cnn_sem = _initialize_cnn_module(self, n_layers=1, kernel_size=[3], n_units=[300], padding='same', project_encodings=False, max_pooling_over_time=True, name='cnn_sem') #confirm hyperparams with the shao2017 paper: CNN: 1 layer, n=300, relu activation, no dropout or regularization.  then fed to difference and hadamard and concatenated.  then FCNN: 2 layers, 300 units, tanh activation, no regularization or dropout
-            cnn_sem_s1_output = cnn_sem(self.sts_s1_word_encodings_sem)
-            cnn_sem_s2_output = cnn_sem(self.sts_s2_word_encodings_sem)
+            self.cnn_sem = _initialize_cnn_module(self, n_layers=1, kernel_size=[3], n_units=[300], padding='same', project_encodings=False, max_pooling_over_time=True, name='cnn_sem') #confirm hyperparams with the shao2017 paper: CNN: 1 layer, n=300, relu activation, no dropout or regularization.  then fed to difference and hadamard and concatenated.  then FCNN: 2 layers, 300 units, tanh activation, no regularization or dropout
+            self.cnn_sem_s1_output = self.cnn_sem(self.sts_s1_word_encodings_sem)
+            self.cnn_sem_s2_output = self.cnn_sem(self.sts_s2_word_encodings_sem)
             #sts predictions from semantic encoders
             self.sts_difference_feats_sem = tf.subtract(
                     self.cnn_sem_s1_output,
@@ -572,16 +572,16 @@ class SynSemNet(object):
                     training=self.training,
                     units=self.n_sts_label,
                     kernel_initializer='he_normal_initializer',
-                    activation='softmax', #TODO confirm take softmax here vs. with loss? other dense layers in this code don't use softmax here... also for dense syn decoding below.  doesn't hurt to take softmax twice (other than efficiency), so tentatively including here.
+                    activation='None', 
                     session=self.sess,
                     name='sts_logits_sem'
             )(self.sts_features_sem_dense)
             self.sts_label_prediction_sem = tf.argmax(self.sts_label_logits_sem, axis=2)
 
             #CNN for syntactic encoder
-            cnn_syn = _initialize_cnn_module(self, n_layers=1, kernel_size=[3], n_units=[300], padding='same', project_encodings=False, max_pooling_over_time=True, name='cnn_syn') #confirm hyperparams with the shao2017 paper
-            cnn_syn_s1_output = cnn_syn(self.sts_s1_word_encodings_syn_adversarial)
-            cnn_syn_s2_output = cnn_syn(self.sts_s2_word_encodings_syn_adversarial) #TODO these aren't shared, are they, since the callable is a new layer with new weights for each call? same for cnn_sem above...
+            self.cnn_syn = _initialize_cnn_module(self, n_layers=1, kernel_size=[3], n_units=[300], padding='same', project_encodings=False, max_pooling_over_time=True, name='cnn_syn') #confirm hyperparams with the shao2017 paper
+            self.cnn_syn_s1_output = self.cnn_syn(self.sts_s1_word_encodings_syn_adversarial)
+            self.cnn_syn_s2_output = selfcnn_syn(self.sts_s2_word_encodings_syn_adversarial) 
             #sts predictions from syntactic encoders 
             self.sts_difference_feats_syn = tf.subtract(
                     self.cnn_syn_s1_output,
@@ -607,7 +607,7 @@ class SynSemNet(object):
                     training=self.training,
                     units=self.n_sts_label,
                     kernel_initializer='he_normal_initializer',
-                    activation='softmax',
+                    activation='None',
                     session=self.sess,
                     name='sts_logits_syn'
             )(self.sts_features_syn_dense)
