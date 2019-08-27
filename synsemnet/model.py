@@ -543,7 +543,7 @@ class SynSemNet(object):
         with self.sess.as_default():
             # Define some new tensors for semantic predictions from both syntactic and semantic encoders.
             #CNN for semantic encoder
-            self.cnn_sem = _initialize_cnn_module(self, n_layers=1, kernel_size=[3], n_units=[300], padding='same', project_encodings=False, max_pooling_over_time=True, name='cnn_sem') #confirm hyperparams with the shao2017 paper: CNN: 1 layer, n=300, relu activation, no dropout or regularization.  then fed to difference and hadamard and concatenated.  then FCNN: 2 layers, 300 units, tanh activation, no regularization or dropout
+            self.cnn_sem = _initialize_cnn_module(self, n_layers=1, kernel_size=[1], n_units=[300], padding='same', project_encodings=False, max_pooling_over_time=True, name='cnn_sem') #confirm hyperparams with the shao2017 paper: CNN: 1 layer, filter_height=1, 300 filters, relu activation, no dropout or regularization.  then fed to difference and hadamard and concatenated.  then FCNN: 2 layers, 300 units, tanh activation, no regularization or dropout
             self.cnn_sem_s1_output = self.cnn_sem(self.sts_s1_word_encodings_sem)
             self.cnn_sem_s2_output = self.cnn_sem(self.sts_s2_word_encodings_sem)
             #sts predictions from semantic encoders
@@ -579,7 +579,7 @@ class SynSemNet(object):
             self.sts_label_prediction_sem = tf.argmax(self.sts_label_logits_sem, axis=2)
 
             #CNN for syntactic encoder
-            self.cnn_syn = _initialize_cnn_module(self, n_layers=1, kernel_size=[3], n_units=[300], padding='same', project_encodings=False, max_pooling_over_time=True, name='cnn_syn') #confirm hyperparams with the shao2017 paper
+            self.cnn_syn = _initialize_cnn_module(self, n_layers=1, kernel_size=[1], n_units=[300], padding='same', project_encodings=False, max_pooling_over_time=True, name='cnn_syn') #confirm hyperparams with the shao2017 paper, padding doesn't matter with filter_height=1
             self.cnn_syn_s1_output = self.cnn_syn(self.sts_s1_word_encodings_syn_adversarial)
             self.cnn_syn_s2_output = selfcnn_syn(self.sts_s2_word_encodings_syn_adversarial) 
             #sts predictions from syntactic encoders 
