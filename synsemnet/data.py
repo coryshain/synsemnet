@@ -151,12 +151,19 @@ def read_parse_label_file(path):
 # TODO: For Evan
 def read_sts_file(path):
     sts_s1_text = []
-    sts_s1_text = []
+    sts_s2_text = []
     sts_label = []
 
     # COMPUTE THESE FROM FILE AT PATH
+    with open(path, 'r') as iff:
+        for line in iff:
+            _, _, _, _, label, s1, s2 = line.split("\t") #"sts-dev.tsv" has 7 fields- genre,subgenre,year,uid,score,s1,s2
+            label = int(round(float(label)))
+            sts_s1_text.append(s1)
+            sts_s2_text.append(s2)
+            sts_label.append(label)
 
-    return sts_s1_text, sts_s1_text, sts_label
+    return sts_s1_text, sts_s2_text, sts_label
 
 def print_interlinearized(lines, max_tokens=20):
     out = []
@@ -261,6 +268,23 @@ class Dataset(object):
 
     # TODO: For Evan
     def cache_numeric_sts_data(self, name='train', factor_parse_labels=True):
+        self.files[name]['s1_text'], self.files[name]['s1_text_mask'] = self.symbols_to_padded_seqs(
+                name=name,
+                data_type='s1_text',
+                return_mask=True
+                )
+
+        self.files[name]['s2_text'], self.files[name]['s2_text_mask'] = self.symbols_to_padded_seqs(
+                name=name,
+                data_type='s2_text',
+                return_mask=True
+                )
+
+        self.files[name]['sts_label'] = self.symbols_to_padded_seqs(
+                name=name,
+                data_type='sts_label',
+                return_mask=False
+                )
         return
 
     def get_seqs(self, name='train', data_type='parsing_text_src', as_words=True):
@@ -389,7 +413,7 @@ class Dataset(object):
                 f = self.parse_ancestor_to_int
         elif data_type.lower() == 'sts_label':
             # TODO: For Evan
-            pass
+            f = lambda x: int(round(float(x)))
         else:
             raise ValueError('Unrecognized data_type "%s".' % data_type)
 
@@ -454,7 +478,7 @@ class Dataset(object):
                 f = self.ints_to_parse_joint
         elif data_type.lower() == 'sts_label':
             # TODO: For Evan
-            pass
+            f = lambda x: int(round(float(x)))
         else:
             raise ValueError('Unrecognized data_type "%s".' % data_type)
 
@@ -529,7 +553,30 @@ class Dataset(object):
             randomize=False
     ):
         # TODO: For Evan
-        pass
+        s1_text = self.files[name]['s1_text']
+        s2_text = self.files[name]['s2_text']
+        sts_label = self.files[name]['sts_label']
+
+        n = len(self.files[name]['s1_text'])
+
+        i = 0
+
+        if randomize:
+            ix, ix_inv = get_random_permutation(n)
+        else:
+            ix = np.arange(n)
+
+        while i < n:
+            indices = ix[i:i+minibatch_size]
+
+            out = {
+                    's1_text': s1_text[indices],
+                    's2_text': s2_text[indices],
+                    'sts_label': sts_label[indices]
+                    }
+            yield out
+            i += minibatch_size
+
 
     def get_training_data_feed(
             self,
@@ -572,9 +619,27 @@ class Dataset(object):
 
         return out
 
-    def sts_predictions_to_sequences(self, *args, **kwargs):
+    def sts_predictions_to_sequences(self, numeric_chars, numeric_chars2, numeric_label, mask=None):
         # TODO: For Evan
-        pass
+        if mask is not None:
+            char_mask = mask
+            word_mask = mask.any(axis=-1)
+        else:
+            char_mask = None
+            word_mask = None
+
+        s1_words = self.padded_seqs_to_symbols(numeric_chars, 's1_text', mask=char_mask, as_list=True)
+        s2_words = self.padded_seqs_to_symbols(numeric_chars2, 's2_text', mask=char_mask, as_list=True)
+        sts_labels = self.padded_seqs_to_symbols(numeric_label, 'sts_label', mask=word_mask, as_list=True)
+
+        out = ''
+
+        for s_w1, s_w2, s_l in zip(s1_words, s2_words, sts_labels):
+            for x in zip(s_w1, s_w2, s_l):
+               out += '\t'.join(x) + '\n'
+            out += '\n'
+
+        return out 
 
     def pretty_print_parse_predictions(
             self,
