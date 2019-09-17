@@ -1,5 +1,6 @@
 import math
 import numpy as np
+import pdb
 
 from synsemnet.util import stderr
 
@@ -44,6 +45,11 @@ def get_parse_ancestor_set(parse_labels):
             parse_ancestor_set.add(l.split('_')[-1])
     return sorted(list(parse_ancestor_set))
 
+def get_sts_label_set(sts_labels):
+    sts_label_set = set()
+    for label in sts_labels:
+        sts_label_set.add(label)
+    return sorted(list(sts_label_set))
 
 def get_random_permutation(n):
     p = np.random.permutation(np.arange(n))
@@ -157,7 +163,9 @@ def read_sts_file(path):
     # COMPUTE THESE FROM FILE AT PATH
     with open(path, 'r') as iff:
         for line in iff:
-            _, _, _, _, label, s1, s2 = line.split("\t") #"sts-dev.tsv" has 7 fields- genre,subgenre,year,uid,score,s1,s2
+            #_, _, _, _, label, s1, s2 = line.split("\t") #"sts-dev.tsv" has 7 fields- genre,subgenre,year,uid,score,s1,s2
+            fields = line.split("\t") # sometimes has 8th and 9th fields for source?
+            label, s1, s2 = fields[4:7]
             label = int(round(float(label)))
             sts_s1_text.append(s1)
             sts_s2_text.append(s2)
@@ -217,6 +225,7 @@ class Dataset(object):
         self.pos_label_list = get_pos_label_set(pos_label)
         self.parse_label_list = get_parse_label_set(parse_label)
         self.parse_ancestor_list = get_parse_ancestor_set(parse_label)
+        self.sts_label_set = get_sts_label_set(sts_label)
 
         self.char_map = {c: i for i, c in enumerate(self.char_list)}
         self.word_map = {w: i for i, w in enumerate(self.word_list)}
@@ -239,7 +248,10 @@ class Dataset(object):
             'parse_label_src': parse_label
         }
 
-        self.files[name] = new
+        if name in self.files:
+            self.files[name].update(new)
+        else:
+            self.files[name] = new
 
     def initialize_sts_file(self, path, name):
         sts_s1_text, sts_s2_text, sts_label = read_sts_file(path)
@@ -250,7 +262,10 @@ class Dataset(object):
             'sts_label_src': sts_label
         }
 
-        self.files[name] = new
+        if name in self.files:
+            self.files[name].update(new)
+        else:
+            self.files[name] = new
 
     def cache_numeric_parsing_data(self, name='train', factor_parse_labels=True):
         self.files[name]['parsing_text'], self.files[name]['parsing_text_mask'] = self.symbols_to_padded_seqs(
@@ -288,6 +303,7 @@ class Dataset(object):
         return
 
     def get_seqs(self, name='train', data_type='parsing_text_src', as_words=True):
+        #pdb.set_trace()
         data = self.files[name][data_type]
 
         if as_words:
@@ -416,7 +432,7 @@ class Dataset(object):
             f = lambda x: int(round(float(x)))
         else:
             raise ValueError('Unrecognized data_type "%s".' % data_type)
-
+        #print("calling get_seqs with args name, data_type, as_words: {} {} {}".format(name, data_type_tmp, as_words))
         data = self.get_seqs(name=name, data_type=data_type_tmp, as_words=as_words)
 
         out = []

@@ -2,6 +2,7 @@ import sys
 import os
 import pickle
 import argparse
+import pdb
 
 from synsemnet.config import Config
 from synsemnet.kwargs import SYN_SEM_NET_KWARGS
@@ -56,12 +57,14 @@ if __name__ == '__main__':
     if p['factor_parse_labels']:
         parse_label_set = data.parse_ancestor_list
     else:
-        parse_label_set = data.parse_label_lis
+        parse_label_set = data.parse_label_list
+    sts_label_set = data.sts_label_set
 
     m = SynSemNet(
         char_set,
         pos_label_set,
         parse_label_set,
+        sts_label_set,
         **kwargs
     )
 
