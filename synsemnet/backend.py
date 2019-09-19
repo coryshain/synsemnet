@@ -35,6 +35,8 @@ def get_activation(activation, session=None, training=True, from_logits=True, sa
 
             if activation:
                 if isinstance(activation, str):
+                    if activation.lower() == 'none':
+                        out = lambda x: x
                     if activation.lower().startswith('cla'):
                         _, lb, ub = activation.split('_')
                         if lb in ['None', '-inf']:
