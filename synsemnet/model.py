@@ -345,7 +345,8 @@ class SynSemNet(object):
                 self.sts_s2_character_embeddings_sem = tf.gather(self.semantic_character_embedding_matrix, self.sts_s2_characters)
 
                 # TODO: For Evan, placeholders for STS labels
-                self.sts_label = tf.placeholder(self.FLOAT_TF, shape=[None], name='sts_label')
+                #self.sts_label = tf.placeholder(self.FLOAT_TF, shape=[None], name='sts_label')
+                self.sts_label = tf.placeholder(self.INT_TF, shape=[None], name='sts_label')
 
     def _initialize_rnn_module(
             self,
@@ -583,11 +584,11 @@ class SynSemNet(object):
                     training=self.training,
                     units=self.n_sts_label,
                     kernel_initializer='he_normal_initializer',
-                    activation='None', 
+                    activation=None, 
                     session=self.sess,
                     name='sts_logits_sem'
             )(self.sts_features_sem_dense)
-            self.sts_label_prediction_sem = tf.argmax(self.sts_label_logits_sem, axis=2)
+            self.sts_label_prediction_sem = tf.argmax(self.sts_logits_sem, axis=-1)
 
             #CNN for syntactic encoder
             self.cnn_syn = self._initialize_cnn_module(n_layers=1, kernel_size=[1], n_units=[300], padding='same', project_encodings=False, max_pooling_over_time=True, name='cnn_syn') #confirm hyperparams with the shao2017 paper, padding doesn't matter with filter_height=1
@@ -611,18 +612,18 @@ class SynSemNet(object):
                     units=300,
                     kernel_initializer='he_normal_initializer',
                     activation='tanh',
-                    session=self.session,
+                    session=self.sess,
                     name='sts_features_syn_dense'
                     )(self.sts_features_syn)
             self.sts_logits_syn = DenseLayer(
                     training=self.training,
                     units=self.n_sts_label,
                     kernel_initializer='he_normal_initializer',
-                    activation='None',
+                    activation=None,
                     session=self.sess,
                     name='sts_logits_syn'
             )(self.sts_features_syn_dense)
-            self.sts_label_prediction_syn = tf.argmax(self.sts_label_logits_syn, axis=2)
+            self.sts_label_prediction_syn = tf.argmax(self.sts_logits_syn, axis=-1)
 
     def _initialize_parsing_objective(self, well_formedness_loss=False):
         with self.sess.as_default():
@@ -703,13 +704,23 @@ class SynSemNet(object):
 
                 self.sts_loss_sem = tf.losses.sparse_softmax_cross_entropy(
                     self.sts_label,
-                    self.sts_label_logits_sem
+                    self.sts_logits_sem
                     )
+
+                #self.sts_loss_sem = tf.losses.mean_squared_error(
+                #    self.sts_label,
+                #    self.sts_label_prediction_sem
+                #    )
 
                 self.sts_loss_syn = tf.losses.sparse_softmax_cross_entropy(
                     self.sts_label,
-                    self.sts_label_logits_syn
+                    self.sts_logits_syn
                     )
+
+                #self.sts_loss_syn = tf.losses.mean_squared_error(
+                #    self.sts_label,
+                #    self.sts_label_prediction_syn
+                #    )
 
                 loss += self.sts_loss_sem
 
