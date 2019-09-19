@@ -354,10 +354,13 @@ class SynSemNet(object):
             bidirectional=True,
             project_encodings=True,
             return_sequences=True,
+            reuse=None,
             name='character_rnn'
     ):
         with self.sess.as_default():
             with self.sess.graph.as_default():
+                if reuse is None:
+                    reuse = tf.AUTO_REUSE
                 out = []
                 for l in range(n_layers):
                     if bidirectional:
@@ -371,6 +374,7 @@ class SynSemNet(object):
                         recurrent_activation=self.recurrent_activation,
                         return_sequences=return_sequences,
                         name=name + '_fwd_l%d' % l,
+                        reuse=reuse,
                         session=self.sess
                     )
 
@@ -382,6 +386,7 @@ class SynSemNet(object):
                             recurrent_activation=self.recurrent_activation,
                             return_sequences=return_sequences,
                             name=name + '_bwd_l%d' % l,
+                            reuse=reuse,
                             session=self.sess
                         )
                         char_encoder_rnn = make_bi_rnn_layer(char_encoder_fwd_rnn, char_encoder_bwd_rnn, session=self.sess)
@@ -400,7 +405,8 @@ class SynSemNet(object):
                             activation=None,
                             project_inputs=False,
                             session=self.sess,
-                            name=name + '_projection'
+                            name=name + '_projection',
+                            reuse=reuse
                         )
                     else:
                         projection = DenseLayer(
@@ -409,7 +415,8 @@ class SynSemNet(object):
                             kernel_initializer='identity_initializer',
                             activation=None,
                             session=self.sess,
-                            name=name + '_projection'
+                            name=name + '_projection',
+                            reuse=reuse
                         )
                     out.append(make_lambda(projection, session=self.sess))
 
@@ -425,10 +432,13 @@ class SynSemNet(object):
             padding='valid',
             project_encodings=True,
             max_pooling_over_time=True,
+            reuse=None,
             name='word_cnn'
     ):
         with self.sess.as_default():
             with self.sess.graph.as_default():
+                if reuse is None:
+                    reuse = tf.AUTO_REUSE
                 out = []
                 for l in range(n_layers):
                     kernel_size_cur = kernel_size[l]
@@ -440,6 +450,7 @@ class SynSemNet(object):
                         activation=self.activation,
                         padding=padding,
                         name=name + '_l%d' % l,
+                        reuse=reuse,
                         session=self.sess
                     )
 
@@ -459,7 +470,8 @@ class SynSemNet(object):
                             activation=None,
                             project_inputs=False,
                             session=self.sess,
-                            name=name + '_projection'
+                            name=name + '_projection',
+                            reuse=reuse
                         )
                     else:
                         projection = DenseLayer(
@@ -468,7 +480,8 @@ class SynSemNet(object):
                             kernel_initializer='identity_initializer',
                             activation=None,
                             session=self.sess,
-                            name=name + '_projection'
+                            name=name + '_projection',
+                            reuse=reuse
                         )
                     out.append(make_lambda(projection, session=self.sess))
 
