@@ -3,7 +3,8 @@ import os
 import re
 import argparse
 
-from synsemnet.tree import Tree
+from ...tree import Tree
+
 
 def clean_up_trees(path):
     t = Tree()
@@ -33,6 +34,7 @@ def clean_up_trees(path):
                     n_right = 0
 
     return trees
+
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser('''

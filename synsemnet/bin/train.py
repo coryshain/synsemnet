@@ -4,11 +4,12 @@ import pickle
 import argparse
 import pdb
 
-from synsemnet.config import Config
-from synsemnet.kwargs import SYN_SEM_NET_KWARGS
-from synsemnet.data import Dataset
-from synsemnet.model import SynSemNet
-from synsemnet.util import stderr
+from ..config import Config
+from ..kwargs import SYN_SEM_NET_KWARGS
+from ..data import Dataset
+from ..model import SynSemNet
+from ..util import stderr
+
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser('''
