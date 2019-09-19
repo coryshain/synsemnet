@@ -574,7 +574,7 @@ class SynSemNet(object):
             self.sts_features_sem_dense = DenseLayer(
                     training=self.training,
                     units=300, #output dim
-                    kernel_initialize='he_normal_initializer',
+                    kernel_initializer='he_normal_initializer',
                     activation='tanh',
                     session=self.sess,
                     name='sts_features_sem_dense'
@@ -592,7 +592,7 @@ class SynSemNet(object):
             #CNN for syntactic encoder
             self.cnn_syn = self._initialize_cnn_module(n_layers=1, kernel_size=[1], n_units=[300], padding='same', project_encodings=False, max_pooling_over_time=True, name='cnn_syn') #confirm hyperparams with the shao2017 paper, padding doesn't matter with filter_height=1
             self.cnn_syn_s1_output = self.cnn_syn(self.sts_s1_word_encodings_syn_adversarial)
-            self.cnn_syn_s2_output = selfcnn_syn(self.sts_s2_word_encodings_syn_adversarial) 
+            self.cnn_syn_s2_output = self.cnn_syn(self.sts_s2_word_encodings_syn_adversarial)
             #sts predictions from syntactic encoders 
             self.sts_difference_feats_syn = tf.subtract(
                     self.cnn_syn_s1_output,
@@ -611,7 +611,7 @@ class SynSemNet(object):
                     units=300,
                     kernel_initializer='he_normal_initializer',
                     activation='tanh',
-                    session=self.self,
+                    session=self.session,
                     name='sts_features_syn_dense'
                     )(self.sts_features_syn)
             self.sts_logits_syn = DenseLayer(
