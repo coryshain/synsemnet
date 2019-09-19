@@ -374,7 +374,6 @@ class SynSemNet(object):
                         recurrent_activation=self.recurrent_activation,
                         return_sequences=return_sequences,
                         name=name + '_fwd_l%d' % l,
-                        reuse=reuse,
                         session=self.sess
                     )
 
@@ -386,7 +385,6 @@ class SynSemNet(object):
                             recurrent_activation=self.recurrent_activation,
                             return_sequences=return_sequences,
                             name=name + '_bwd_l%d' % l,
-                            reuse=reuse,
                             session=self.sess
                         )
                         char_encoder_rnn = make_bi_rnn_layer(char_encoder_fwd_rnn, char_encoder_bwd_rnn, session=self.sess)
