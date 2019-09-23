@@ -572,6 +572,8 @@ class Dataset(object):
         s1_text = self.files[name]['s1_text']
         s2_text = self.files[name]['s2_text']
         sts_label = self.files[name]['sts_label']
+        s1_text_mask = self.files[name]['s1_text_mask']
+        s2_text_mask = self.files[name]['s2_text_mask']
 
         n = len(self.files[name]['s1_text'])
 
@@ -588,7 +590,9 @@ class Dataset(object):
             out = {
                     's1_text': s1_text[indices],
                     's2_text': s2_text[indices],
-                    'sts_label': sts_label[indices]
+                    'sts_label': sts_label[indices],
+                    's1_text_mask': s1_text[indices],
+                    's2_text_mask': s2_text[indices]
                     }
             yield out
             i += minibatch_size

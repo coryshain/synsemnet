@@ -53,6 +53,9 @@ if __name__ == '__main__':
     stderr('Caching numeric dev data...\n')
     data.cache_numeric_parsing_data(name='dev', factor_parse_labels=p['factor_parse_labels'])
 
+    data.cache_numeric_sts_data(name='train')
+    data.cache_numeric_sts_data(name='dev')
+
     char_set = data.char_list
     pos_label_set = data.pos_label_list
     if p['factor_parse_labels']:
