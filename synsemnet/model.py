@@ -66,23 +66,96 @@ class SynSemNet(object):
         self.n_parse_label = len(self.parse_label_set)
         self.n_sts_label = len(self.sts_label_set)
 
-        if isinstance(self.syn_n_units, str):
-            self.syn_encoder_units = [int(x) for x in self.syn_n_units.split()]
-            if len(self.syn_encoder_units) == 1:
-                self.syn_encoder_units = [self.syn_encoder_units[0]] * self.syn_n_layers
-        elif isinstance(self.syn_n_units, int):
-            self.syn_encoder_units = [self.syn_n_units] * self.syn_n_layers
+        # Encoder layers and units
+        assert not self.n_units_encoder is None, 'You must provide a value for **n_units_encoder** when initializing a SynSemNet model.'
+        if isinstance(self.n_units_encoder, str):
+            self.units_encoder = [int(x) for x in self.n_units_encoder.split()]
+        elif isinstance(self.n_units_encoder, int):
+            if self.n_layers_encoder is None:
+                self.units_encoder = [self.n_units_encoder]
+            else:
+                self.units_encoder = [self.n_units_encoder] * self.n_layers_encoder
         else:
-            self.syn_encoder_units = self.syn_n_units
+            self.units_encoder = self.n_units_encoder
 
-        if isinstance(self.sem_n_units, str):
-            self.sem_encoder_units = [int(x) for x in self.sem_n_units.split()]
-            if len(self.sem_encoder_units) == 1:
-                self.sem_encoder_units = [self.sem_encoder_units[0]] * self.sem_n_layers
-        elif isinstance(self.sem_n_units, int):
-            self.sem_encoder_units = [self.sem_n_units] * self.sem_n_layers
+        if self.n_layers_encoder is None:
+            self.layers_encoder = len(self.units_encoder)
         else:
-            self.sem_encoder_units = self.sem_n_units
+            self.layers_encoder = self.n_layers_encoder
+        if len(self.units_encoder) == 1:
+            self.units_encoder = [self.units_encoder[0]] * self.layers_encoder
+
+        assert len(self.units_encoder) == self.layers_encoder, 'Misalignment in number of layers between n_layers_encoder and n_units_encoder.'
+
+        # Parsing decoder layers and units
+        assert not self.n_units_parsing_decoder is None, 'You must provide a value for **n_units_parsing_decoder** when initializing a SynSemNet model.'
+        if isinstance(self.n_units_parsing_decoder, str):
+            self.units_parsing_decoder = [int(x) for x in self.n_units_parsing_decoder.split()]
+        elif isinstance(self.n_units_parsing_decoder, int):
+            if self.n_layers_parsing_decoder is None:
+                self.units_parsing_decoder = [self.n_units_parsing_decoder]
+            else:
+                self.units_parsing_decoder = [self.n_units_parsing_decoder] * self.n_layers_parsing_decoder
+        else:
+            self.units_parsing_decoder = self.n_units_parsing_decoder
+
+        if self.n_layers_parsing_decoder is None:
+            self.layers_parsing_decoder = len(self.units_parsing_decoder)
+        else:
+            self.layers_parsing_decoder = self.n_layers_parsing_decoder
+        if len(self.units_parsing_decoder) == 1:
+            self.units_parsing_decoder = [self.units_parsing_decoder[0]] * self.layers_parsing_decoder
+
+        assert len(self.units_parsing_decoder) == self.layers_parsing_decoder, 'Misalignment in number of layers between n_layers_parsing_decoder and n_units_parsing_decoder.'
+
+        # STS decoder layers and units
+        assert not self.n_units_sts_decoder is None, 'You must provide a value for **n_units_sts_decoder** when initializing a SynSemNet model.'
+        if isinstance(self.n_units_sts_decoder, str):
+            self.units_sts_decoder = [int(x) for x in self.n_units_sts_decoder.split()]
+        elif isinstance(self.n_units_sts_decoder, int):
+            if self.n_layers_sts_decoder is None:
+                self.units_sts_decoder = [self.n_units_sts_decoder]
+            else:
+                self.units_sts_decoder = [self.n_units_sts_decoder] * self.n_layers_sts_decoder
+        else:
+            self.units_sts_decoder = self.n_units_sts_decoder
+
+        if self.n_layers_sts_decoder is None:
+            self.layers_sts_decoder = len(self.units_sts_decoder)
+        else:
+            self.layers_sts_decoder = self.n_layers_sts_decoder
+        if len(self.units_sts_decoder) == 1:
+            self.units_sts_decoder = [self.units_sts_decoder[0]] * self.layers_sts_decoder
+
+        if isinstance(self.sts_conv_kernel_size, str):
+            self.sts_kernel_size = [int(x) for x in self.sts_conv_kernel_size.split()]
+        elif isinstance(self.sts_conv_kernel_size, int):
+            self.sts_kernel_size  = [self.sts_conv_kernel_size] * self.layers_sts_decoder
+        else:
+            self.sts_kernel_size = self.sts_conv_kernel_size
+
+        assert len(self.units_sts_decoder) == len(self.sts_conv_kernel_size) == self.layers_sts_decoder, 'Misalignment in number of layers between n_layers_sts_decoder, sts_conv_kernel_size, and n_units_sts_decoder.'
+
+        # STS classifier layers and units
+        assert not self.n_units_sts_classifier is None, 'You must provide a value for **n_units_sts_classifier** when initializing a SynSemNet model.'
+        if isinstance(self.n_units_sts_classifier, str):
+            self.units_sts_classifier = [int(x) for x in self.n_units_sts_classifier.split()]
+        elif isinstance(self.n_units_sts_classifier, int):
+            if self.n_layers_sts_classifier is None:
+                self.units_sts_classifier = [self.n_units_sts_classifier]
+            else:
+                self.units_sts_classifier = [self.n_units_sts_classifier] * self.n_layers_sts_classifier
+        else:
+            self.units_sts_classifier = self.n_units_sts_classifier
+
+        if self.n_layers_sts_classifier is None:
+            self.layers_sts_classifier = len(self.units_sts_classifier)
+        else:
+            self.layers_sts_classifier = self.n_layers_sts_classifier
+        if len(self.units_sts_classifier) == 1:
+            self.units_sts_classifier = [self.units_sts_classifier[0]] * self.layers_sts_classifier
+
+        assert len(self.units_sts_classifier) == self.layers_sts_classifier, 'Misalignment in number of layers between n_layers_sts_classifier and n_units_sts_classifier.'
 
         self.predict_mode = False
 
@@ -129,34 +202,50 @@ class SynSemNet(object):
         self.syntactic_character_rnn = self._initialize_rnn_module(
             1,
             [self.word_emb_dim],
-            bidirectional=self.bidirectional,
+            activation=self.encoder_activation,
+            recurrent_activation=self.encoder_recurrent_activation,
+            bidirectional=self.bidirectional_encoder,
             project_encodings=self.project_word_embeddings,
+            projection_activation_inner=self.encoder_projection_activation_inner,
+            resnet_n_layers_inner=self.encoder_resnet_n_layers_inner,
             return_sequences=False,
             name='syntactic_character_rnn'
         )
         self.semantic_character_rnn = self._initialize_rnn_module(
             1,
             [self.word_emb_dim],
-            bidirectional=self.bidirectional,
+            activation=self.encoder_activation,
+            recurrent_activation=self.encoder_recurrent_activation,
+            bidirectional=self.bidirectional_encoder,
             project_encodings=self.project_word_embeddings,
+            projection_activation_inner=self.encoder_projection_activation_inner,
+            resnet_n_layers_inner=self.encoder_resnet_n_layers_inner,
             return_sequences=False,
             name='semantic_character_rnn'
         )
         self.syntactic_word_encoder = self._initialize_rnn_module(
-            self.syn_n_layers,
-            self.syn_encoder_units,
-            bidirectional=self.bidirectional,
-            project_encodings=self.project_word_embeddings,
+            self.layers_encoder,
+            self.units_encoder,
+            activation=self.encoder_activation,
+            recurrent_activation=self.encoder_recurrent_activation,
+            bidirectional=self.bidirectional_encoder,
+            project_encodings=self.project_encodings,
+            projection_activation_inner=self.encoder_projection_activation_inner,
+            resnet_n_layers_inner=self.encoder_resnet_n_layers_inner,
             return_sequences=True,
             name='syntactic_word_encoder'
         )
         self.semantic_word_encoder = self._initialize_rnn_module(
-            self.sem_n_layers,
-            self.sem_encoder_units,
-            bidirectional=self.bidirectional,
-            project_encodings=self.project_word_embeddings,
+            self.layers_encoder,
+            self.units_encoder,
+            activation=self.encoder_activation,
+            recurrent_activation=self.encoder_recurrent_activation,
+            bidirectional=self.bidirectional_encoder,
+            project_encodings=self.project_encodings,
+            projection_activation_inner=self.encoder_projection_activation_inner,
+            resnet_n_layers_inner=self.encoder_resnet_n_layers_inner,
             return_sequences=True,
-            name='semantic_word_encoder'
+            name='semantic_word_encoder',
         )
 
         # Construct encodings for syntactic tasks
@@ -254,8 +343,8 @@ class SynSemNet(object):
         )(self.sts_s2_word_encodings_sem)
 
         # Construct outputs for both tasks
-        self._initialize_syntactic_outputs()
-        self._initialize_semantic_outputs()
+        self._initialize_parsing_outputs()
+        self._initialize_sts_outputs()
 
         # Construct losses
         with self.sess.as_default():
@@ -304,8 +393,8 @@ class SynSemNet(object):
                     name='semantic_character_embedding_matrix'
                 )
 
-                self._initialize_syntactic_inputs()
-                self._initialize_semantic_inputs()
+                self._initialize_parsing_inputs()
+                self._initialize_sts_inputs()
 
                 self.global_step = tf.Variable(
                     0,
@@ -322,7 +411,7 @@ class SynSemNet(object):
                 )
                 self.incr_global_batch_step = tf.assign(self.global_batch_step, self.global_batch_step + 1)
                 
-    def _initialize_syntactic_inputs(self):
+    def _initialize_parsing_inputs(self):
         with self.sess.as_default():
             with self.sess.graph.as_default():
                 self.parsing_characters = tf.placeholder(self.INT_TF, shape=[None, None, None], name='parsing_characters')
@@ -337,7 +426,7 @@ class SynSemNet(object):
                 if self.factor_parse_labels:
                     self.parse_depth = tf.placeholder(self.FLOAT_TF, shape=[None, None], name='parse_depth')
 
-    def _initialize_semantic_inputs(self):
+    def _initialize_sts_inputs(self):
         with self.sess.as_default():
             with self.sess.graph.as_default():
                 self.sts_s1_characters = tf.placeholder(self.INT_TF, shape=[None, None, None], name='sts_s1_characters')
@@ -352,18 +441,80 @@ class SynSemNet(object):
                 self.sts_s2_character_embeddings_syn = tf.gather(self.syntactic_character_embedding_matrix, self.sts_s2_characters)
                 self.sts_s2_character_embeddings_sem = tf.gather(self.semantic_character_embedding_matrix, self.sts_s2_characters)
 
-                # TODO: For Evan, placeholders for STS labels
                 #self.sts_label = tf.placeholder(self.FLOAT_TF, shape=[None], name='sts_label')
                 self.sts_label = tf.placeholder(self.INT_TF, shape=[None], name='sts_label')
+
+    def _initialize_dense_module(
+            self,
+            n_layers,
+            n_units,
+            kernel_initializer='he_normal_initializer',
+            activation=None,
+            activation_inner='elu',
+            resnet_n_layers_inner=None,
+            reuse=None,
+            name='word_dense'
+    ):
+        with self.sess.as_default():
+            with self.sess.graph.as_default():
+                if reuse is None:
+                    reuse = tf.AUTO_REUSE
+                out = []
+                for l in range(n_layers):
+                    activation_inner_cur = activation_inner
+                    if l < n_layers - 1:
+                        activation_cur = activation_inner
+                    else:
+                        activation_cur = activation
+
+                    units_cur = n_units[l]
+                    
+                    if resnet_n_layers_inner:
+                        word_encoder_dense = DenseResidualLayer(
+                            training=self.training,
+                            units=units_cur,
+                            layers_inner=resnet_n_layers_inner,
+                            kernel_initializer=kernel_initializer,
+                            activation_inner=activation_inner_cur,
+                            activation=activation_cur,
+                            project_inputs=False,
+                            session=self.sess,
+                            name=name + '_l%d' % l,
+                            reuse=reuse
+                        )
+                    else:
+                        word_encoder_dense = DenseLayer(
+                            training=self.training,
+                            units=units_cur,
+                            kernel_initializer=kernel_initializer,
+                            activation=activation_cur,
+                            name=name + '_l%d' % l,
+                            reuse=reuse,
+                            session=self.sess
+                        )
+
+                    out.append(make_lambda(word_encoder_dense, session=self.sess))
+
+                out = compose_lambdas(out)
+
+                return out
 
     def _initialize_rnn_module(
             self,
             n_layers,
             n_units,
+            kernel_initializer='he_normal_initializer',
+            recurrent_initializer='orthogonal_initializer',
+            activation='tanh',
+            activation_inner='tanh',
+            recurrent_activation='sigmoid',
             bidirectional=True,
             project_encodings=True,
+            projection_activation_inner='elu',
+            resnet_n_layers_inner=None,
             return_sequences=True,
             reuse=None,
+            passthru=False,
             name='character_rnn'
     ):
         with self.sess.as_default():
@@ -372,15 +523,24 @@ class SynSemNet(object):
                     reuse = tf.AUTO_REUSE
                 out = []
                 for l in range(n_layers):
+                    if l < n_layers - 1:
+                        activation_cur = activation_inner
+                    else:
+                        activation_cur = activation
+
                     if bidirectional:
+                        assert n_units[l] % 2 == 0, 'Bidirectional RNNs must have an even number of hidden units. Saw %d.' % n_units[l]
                         units_cur = int(n_units[l] / 2)
                     else:
                         units_cur = n_units[l]
+
                     char_encoder_fwd_rnn = RNNLayer(
                         training=self.training,
                         units=units_cur,
-                        activation=self.activation,
-                        recurrent_activation=self.recurrent_activation,
+                        kernel_initializer=kernel_initializer,
+                        recurrent_initializer=recurrent_initializer,
+                        activation=activation_cur,
+                        recurrent_activation=recurrent_activation,
                         return_sequences=return_sequences,
                         name=name + '_fwd_l%d' % l,
                         session=self.sess
@@ -390,8 +550,10 @@ class SynSemNet(object):
                         char_encoder_bwd_rnn = RNNLayer(
                             training=self.training,
                             units=units_cur,
-                            activation=self.activation,
-                            recurrent_activation=self.recurrent_activation,
+                            kernel_initializer=kernel_initializer,
+                            recurrent_initializer=recurrent_initializer,
+                            activation=activation_cur,
+                            recurrent_activation=recurrent_activation,
                             return_sequences=return_sequences,
                             name=name + '_bwd_l%d' % l,
                             session=self.sess
@@ -399,16 +561,23 @@ class SynSemNet(object):
                         char_encoder_rnn = make_bi_rnn_layer(char_encoder_fwd_rnn, char_encoder_bwd_rnn, session=self.sess)
                     else:
                         char_encoder_rnn = char_encoder_fwd_rnn
+                    if passthru: # Concat inputs and outputs to allow passthru connections
+                        def char_encoder_rnn(x, layer=char_encoder_rnn, mask=None):
+                            below = x
+                            above = layer(x, mask=mask)
+                            out = tf.concat([below, above], axis=-1)
+                            return out
+
                     out.append(make_lambda(char_encoder_rnn, session=self.sess, use_kwargs=True))
 
                 if project_encodings:
-                    if self.resnet_n_layers_inner:
+                    if resnet_n_layers_inner:
                         projection = DenseResidualLayer(
                             training=self.training,
                             units=n_units[-1],
-                            kernel_initializer='identity_initializer',
-                            layers_inner=self.resnet_n_layers_inner,
-                            activation_inner=self.activation,
+                            kernel_initializer=kernel_initializer,
+                            layers_inner=resnet_n_layers_inner,
+                            activation_inner=projection_activation_inner,
                             activation=None,
                             project_inputs=False,
                             session=self.sess,
@@ -419,7 +588,7 @@ class SynSemNet(object):
                         projection = DenseLayer(
                             training=self.training,
                             units=n_units[-1],
-                            kernel_initializer='identity_initializer',
+                            kernel_initializer=kernel_initializer,
                             activation=None,
                             session=self.sess,
                             name=name + '_projection',
@@ -437,7 +606,12 @@ class SynSemNet(object):
             kernel_size,
             n_units,
             padding='valid',
+            kernel_initializer='he_normal_initializer',
+            activation='elu',
+            activation_inner='elu',
             project_encodings=True,
+            resnet_n_layers_inner=None,
+            projection_activation_inner='elu',
             max_pooling_over_time=True,
             reuse=None,
             name='word_cnn'
@@ -449,17 +623,40 @@ class SynSemNet(object):
                 out = []
                 for l in range(n_layers):
                     kernel_size_cur = kernel_size[l]
+
+                    if l < n_layers - 1:
+                        activation_cur = activation_inner
+                    else:
+                        activation_cur = activation
+
                     units_cur = n_units[l]
-                    word_encoder_cnn = Conv1DLayer(
-                        training=self.training,
-                        kernel_size=kernel_size_cur,
-                        n_filters=units_cur,
-                        activation=self.activation,
-                        padding=padding,
-                        name=name + '_l%d' % l,
-                        reuse=reuse,
-                        session=self.sess
-                    )
+
+                    if resnet_n_layers_inner:
+                        word_encoder_cnn = Conv1DResidualLayer(
+                            training=self.training,
+                            kernel_size=kernel_size_cur,
+                            n_filters=units_cur,
+                            kernel_initializer=kernel_initializer,
+                            activation=activation_cur,
+                            padding=padding,
+                            layers_inner=resnet_n_layers_inner,
+                            project_inputs=False,
+                            name=name + '_l%d' % l,
+                            reuse=reuse,
+                            session=self.sess
+                        )
+                    else:
+                        word_encoder_cnn = Conv1DLayer(
+                            training=self.training,
+                            kernel_size=kernel_size_cur,
+                            n_filters=units_cur,
+                            kernel_initializer=kernel_initializer,
+                            activation=activation_cur,
+                            padding=padding,
+                            name=name + '_l%d' % l,
+                            reuse=reuse,
+                            session=self.sess
+                        )
 
                     out.append(make_lambda(word_encoder_cnn, session=self.sess))
 
@@ -467,14 +664,14 @@ class SynSemNet(object):
                         out.append(make_lambda(lambda x: tf.reduce_max(x, axis=1), session=self.sess))
 
                 if project_encodings:
-                    if self.resnet_n_layers_inner:
+                    if resnet_n_layers_inner:
                         projection = DenseResidualLayer(
                             training=self.training,
                             units=n_units[-1],
-                            kernel_initializer='identity_initializer',
-                            layers_inner=self.resnet_n_layers_inner,
-                            activation_inner=self.activation,
-                            activation=None,
+                            layers_inner=resnet_n_layers_inner,
+                            kernel_initializer=kernel_initializer,
+                            activation_inner=projection_activation_inner,
+                            activation=activation,
                             project_inputs=False,
                             session=self.sess,
                             name=name + '_projection',
@@ -484,8 +681,8 @@ class SynSemNet(object):
                         projection = DenseLayer(
                             training=self.training,
                             units=n_units[-1],
-                            kernel_initializer='identity_initializer',
-                            activation=None,
+                            kernel_initializer=kernel_initializer,
+                            activation=activation,
                             session=self.sess,
                             name=name + '_projection',
                             reuse=reuse
@@ -519,17 +716,17 @@ class SynSemNet(object):
 
                 return encoder(inputs, mask=mask) * mask[..., None]
 
-    def _initialize_syntactic_outputs(self):
+    def _initialize_parsing_outputs(self):
         with self.sess.as_default():
             with self.sess.graph.as_default():
                 units = self.n_pos + self.n_parse_label + self.factor_parse_labels
 
-                self.parsing_logits_syn = DenseLayer(
-                    training=self.training,
-                    units=units,
-                    kernel_initializer='he_normal_initializer',
-                    activation=None,
-                    session=self.sess,
+                self.parsing_logits_syn = self._initialize_dense_module(
+                    self.layers_parsing_decoder,
+                    self.units_parsing_decoder,
+                    activation=self.parsing_decoder_activation,
+                    activation_inner=self.parsing_decoder_activation_inner,
+                    resnet_n_layers_inner=self.parsing_decoder_resnet_n_layers_inner,
                     name='parsing_logits_syn'
                 )(self.parsing_word_encodings_syn)
 
@@ -541,13 +738,13 @@ class SynSemNet(object):
                     self.parse_depth_logits_syn = self.parsing_logits_syn[..., self.n_pos + self.n_parse_label]
                     self.parse_depth_prediction_syn = tf.cast(tf.round(self.parse_depth_logits_syn), dtype=self.INT_TF)
 
-                self.parsing_logits_sem = DenseLayer(
-                    training=self.training,
-                    units=units,
-                    kernel_initializer='he_normal_initializer',
-                    activation=None,
-                    session=self.sess,
-                    name='parsing_logits_sem'
+                self.parsing_logits_sem = self._initialize_dense_module(
+                    self.layers_parsing_decoder,
+                    self.units_parsing_decoder,
+                    activation=self.parsing_decoder_activation,
+                    activation_inner=self.parsing_decoder_activation_inner,
+                    resnet_n_layers_inner=self.parsing_decoder_resnet_n_layers_inner,
+                    name='parsing_logits_syn'
                 )(self.parsing_word_encodings_sem_adversarial)
 
                 self.pos_label_logits_sem = self.parsing_logits_sem[..., :self.n_pos]
@@ -558,79 +755,122 @@ class SynSemNet(object):
                     self.parse_depth_logits_sem = self.parsing_logits_sem[..., self.n_pos + self.n_parse_label]
                     self.parse_depth_prediction_sem = tf.cast(tf.round(self.parse_depth_logits_syn), dtype=self.INT_TF)
 
-    # TODO: For Evan
-    def _initialize_semantic_outputs(self):
+    def _initialize_sts_outputs(self):
         with self.sess.as_default():
             # Define some new tensors for semantic predictions from both syntactic and semantic encoders.
-            #CNN for semantic encoder
-            self.cnn_sem = self._initialize_cnn_module(n_layers=1, kernel_size=[1], n_units=[300], padding='same', project_encodings=False, max_pooling_over_time=True, name='cnn_sem') #confirm hyperparams with the shao2017 paper: CNN: 1 layer, filter_height=1, 300 filters, relu activation, no dropout or regularization.  then fed to difference and hadamard and concatenated.  then FCNN: 2 layers, 300 units, tanh activation, no regularization or dropout
-            self.cnn_sem_s1_output = self.cnn_sem(self.sts_s1_word_encodings_sem)
-            self.cnn_sem_s2_output = self.cnn_sem(self.sts_s2_word_encodings_sem)
+            # STS decoder (sem)
+            if self.sts_decoder_type.lower() == 'cnn':
+                self.sts_decoder_sem = self._initialize_cnn_module(
+                    self.layers_sts_decoder,
+                    self.sts_kernel_size,
+                    self.units_sts_decoder,
+                    activation=self.sts_decoder_activation,
+                    activation_inner=self.sts_decoder_activation_inner,
+                    padding='same',
+                    project_encodings=self.project_sts_decodings,
+                    projection_activation_inner=self.sts_projection_activation_inner,
+                    resnet_n_layers_inner=self.sts_decoder_resnet_n_layers_inner,
+                    max_pooling_over_time=True,
+                    name='sts_decoder_sem'
+                ) #confirm hyperparams with the shao2017 paper: CNN: 1 layer, filter_height=1, 300 filters, relu activation, no dropout or regularization.  then fed to difference and hadamard and concatenated.  then FCNN: 2 layers, 300 units, tanh activation, no regularization or dropout
+            elif self.sts_decoder_type.lower() == 'rnn':
+                self.sts_decoder_sem = self._initialize_rnn_module(
+                    self.layers_sts_decoder,
+                    self.units_sts_decoder,
+                    bidirectional=self.bidirectional_sts_decoder,
+                    activation=self.sts_decoder_activation,
+                    activation_inner=self.sts_decoder_activation_inner,
+                    recurrent_activation=self.sts_decoder_recurrent_activation,
+                    project_encodings=self.project_sts_decodings,
+                    projection_activation_inner=self.sts_projection_activation_inner,
+                    resnet_n_layers_inner=self.sts_decoder_resnet_n_layers_inner,
+                    return_sequences=False,
+                    name='sts_decoder_sem'
+                )
+            else:
+                raise ValueError('Unrecognized STS decoder type "%s".' % self.sts_decoder_type)
+            self.sts_latent_s1_sem = self.sts_decoder_sem(self.sts_s1_word_encodings_sem)
+            self.sts_latent_s2_sem = self.sts_decoder_sem(self.sts_s2_word_encodings_sem)
             #sts predictions from semantic encoders
             self.sts_difference_feats_sem = tf.subtract(
-                    self.cnn_sem_s1_output,
-                    self.cnn_sem_s2_output, 
+                    self.sts_latent_s1_sem,
+                    self.sts_latent_s2_sem,
                     name='sts_difference_feats_sem')
             self.sts_product_feats_sem = tf.multiply( #this is element-wise, aka hadamard
-                    self.cnn_sem_s1_output,
-                    self.cnn_sem_s2_output, 
+                    self.sts_latent_s1_sem,
+                    self.sts_latent_s2_sem,
                     name='sts_product_feats_sem') 
             self.sts_features_sem = tf.concat(
                     values=[self.sts_difference_feats_sem, self.sts_product_feats_sem], 
                     axis=1, 
                     name='sts_features_sem')
             #self.sts_logits_sem from self.sts_features_sem with 2 denselayer (section 2 fcnn) from Shao 2017
-            self.sts_features_sem_dense = DenseLayer(
-                    training=self.training,
-                    units=300, #output dim
-                    kernel_initializer='he_normal_initializer',
-                    activation='tanh',
-                    session=self.sess,
-                    name='sts_features_sem_dense'
-            )(self.sts_features_sem)
-            self.sts_logits_sem = DenseLayer(
-                    training=self.training,
-                    units=self.n_sts_label,
-                    kernel_initializer='he_normal_initializer',
-                    activation=None, 
-                    session=self.sess,
-                    name='sts_logits_sem'
-            )(self.sts_features_sem_dense)
+            self.sts_classifier_sem = self._initialize_dense_module(
+                self.layers_sts_classifier,
+                self.units_sts_classifier,
+                activation=None,
+                activation_inner=self.sts_classifier_activation_inner,
+                resnet_n_layers_inner=self.sts_classifier_resnet_n_layers_inner,
+                name='sts_classifier_sem'
+            )
+            self.sts_logits_sem = self.sts_classifier_sem(self.sts_features_sem)
             self.sts_prediction_sem = tf.argmax(self.sts_logits_sem, axis=-1)
 
-            #CNN for syntactic encoder
-            self.cnn_syn = self._initialize_cnn_module(n_layers=1, kernel_size=[1], n_units=[300], padding='same', project_encodings=False, max_pooling_over_time=True, name='cnn_syn') #confirm hyperparams with the shao2017 paper, padding doesn't matter with filter_height=1
-            self.cnn_syn_s1_output = self.cnn_syn(self.sts_s1_word_encodings_syn_adversarial)
-            self.cnn_syn_s2_output = self.cnn_syn(self.sts_s2_word_encodings_syn_adversarial)
+            # STS decoder (syn)
+            if self.sts_decoder_type.lower() == 'cnn':
+                self.sts_decoder_syn = self._initialize_cnn_module(
+                    self.layers_sts_decoder,
+                    self.sts_kernel_size,
+                    self.units_sts_decoder,
+                    activation=self.sts_decoder_activation,
+                    activation_inner=self.sts_decoder_activation_inner,
+                    padding='same',
+                    project_encodings=self.project_sts_decodings,
+                    projection_activation_inner=self.sts_projection_activation_inner,
+                    resnet_n_layers_inner=self.sts_decoder_resnet_n_layers_inner,
+                    max_pooling_over_time=True,
+                    name='sts_decoder_sem'
+                ) #confirm hyperparams with the shao2017 paper: CNN: 1 layer, filter_height=1, 300 filters, relu activation, no dropout or regularization.  then fed to difference and hadamard and concatenated.  then FCNN: 2 layers, 300 units, tanh activation, no regularization or dropout
+            elif self.sts_decoder_type.lower() == 'rnn':
+                self.sts_decoder_syn = self._initialize_rnn_module(
+                    self.layers_sts_decoder,
+                    self.units_sts_decoder,
+                    bidirectional=self.bidirectional_sts_decoder,
+                    activation=self.sts_decoder_activation,
+                    activation_inner=self.sts_decoder_activation_inner,
+                    recurrent_activation=self.sts_decoder_recurrent_activation,
+                    project_encodings=self.project_sts_decodings,
+                    projection_activation_inner=self.sts_projection_activation_inner,
+                    resnet_n_layers_inner=self.sts_decoder_resnet_n_layers_inner,
+                    return_sequences=False,
+                    name='sts_decoder_sem'
+                )
+            else:
+                raise ValueError('Unrecognized STS decoder type "%s".' % self.sts_decoder_type)
+            self.sts_latent_s1_syn = self.sts_decoder_syn(self.sts_s1_word_encodings_syn_adversarial)
+            self.sts_latent_s2_syn = self.sts_decoder_syn(self.sts_s2_word_encodings_syn_adversarial)
             #sts predictions from syntactic encoders 
             self.sts_difference_feats_syn = tf.subtract(
-                    self.cnn_syn_s1_output,
-                    self.cnn_syn_s2_output,
+                    self.sts_latent_s1_syn,
+                    self.sts_latent_s2_syn,
                     name='sts_difference_feats_syn')
             self.sts_product_feats_syn = tf.multiply(
-                    self.cnn_syn_s1_output,
-                    self.cnn_syn_s2_output,
+                    self.sts_latent_s1_syn,
+                    self.sts_latent_s2_syn,
                     name='sts_product_feats_syn')
             self.sts_features_syn = tf.concat(
                     values=[self.sts_difference_feats_syn, self.sts_product_feats_syn], 
                     axis=1, 
                     name='sts_features_syn')
-            self.sts_features_syn_dense = DenseLayer(
-                    training=self.training,
-                    units=300,
-                    kernel_initializer='he_normal_initializer',
-                    activation='tanh',
-                    session=self.sess,
-                    name='sts_features_syn_dense'
-                    )(self.sts_features_syn)
-            self.sts_logits_syn = DenseLayer(
-                    training=self.training,
-                    units=self.n_sts_label,
-                    kernel_initializer='he_normal_initializer',
-                    activation=None,
-                    session=self.sess,
-                    name='sts_logits_syn'
-            )(self.sts_features_syn_dense)
+            self.sts_classifier_syn = self._initialize_dense_module(
+                self.layers_sts_classifier,
+                self.units_sts_classifier,
+                activation=None,
+                activation_inner=self.sts_classifier_activation_inner,
+                resnet_n_layers_inner=self.sts_classifier_resnet_n_layers_inner,
+                name='sts_classifier_syn'
+            )
+            self.sts_logits_syn = self.sts_classifier_syn(self.sts_features_syn)
             self.sts_prediction_syn = tf.argmax(self.sts_logits_syn, axis=-1)
 
     def _initialize_parsing_objective(self, well_formedness_loss=False):

@@ -285,8 +285,15 @@ SYN_SEM_NET_KWARGS = [
         bool,
         "Whether to use data containing a designated ``ROOT`` depth label. Incompatible with **factor_parse_labels** because depth can no longer be treated as numeric."
     ),
+    Kwarg(
+        'factor_parse_labels',
+        True,
+        bool,
+        "Whether to factor parse labels into their (numeric) depth and (categorical) ancestor components and predict each separately. If ``False``, depth and category information is merged and treated as atomic.",
+    ),
 
-    # Model settings
+    # MODEL SETTINGS
+    # Encoder settings
     Kwarg(
         'word_emb_dim',
         None,
@@ -294,10 +301,10 @@ SYN_SEM_NET_KWARGS = [
         "Dimensionality of vocabulary embedding layer. If ``None`` or ``0``, no vocabulary embedding used."
     ),
     Kwarg(
-        'bidirectional',
-        True,
+        'bidirectional_encoder',
+        False,
         bool,
-        "Use bi-directional encoder over words."
+        "Use bi-directional encoder."
     ),
     Kwarg(
         'project_word_embeddings',
@@ -306,70 +313,193 @@ SYN_SEM_NET_KWARGS = [
         "Whether to pass word embeddings through a linear projection."
     ),
     Kwarg(
+        'project_encodings',
+        True,
+        bool,
+        "Whether to pass encodings through a linear projection."
+    ),
+    Kwarg(
         'character_embedding_dim',
         None,
         [int, None],
         "Dimensionality of character embedding layer. If ``None`` or ``0``, no character embedding used."
     ),
     Kwarg(
-        'syn_n_layers',
-        2,
-        int,
-        "Number of layers to use for the syntactic encoder."
-    ),
-    Kwarg(
-        'syn_n_units',
-        128,
-        [int, str],
-        "Number of units to use in the syntactic encoder layers. Can be an ``int``, which will be used for all layers, a ``str`` with **n_layers_encoder** space-delimited integers, or one for each layer in order from bottom to top."
-    ),
-    Kwarg(
-        'sem_n_layers',
-        2,
-        int,
-        "Number of layers to use for the semantic encoder."
-    ),
-    Kwarg(
-        'sem_n_units',
-        128,
-        [int, str],
-        "Number of units to use in the semantic encoder layers. Can be an ``int``, which will be used for all layers, a ``str`` with **n_layers_encoder** space-delimited integers, or one for each layer in order from bottom to top."
-    ),
-    Kwarg(
-        'activation',
-        'tanh',
-        [str, None],
-        "Name of activation to use at the output of the encoders",
-    ),
-    Kwarg(
-        'recurrent_activation',
-        'sigmoid',
-        [str, None],
-        "Name of activation to use for recurrent gates",
-    ),
-    Kwarg(
-        'resnet_n_layers_inner',
-        1,
-        int,
-        "Implement internal encoder layers as residual layers with **resnet_n_layers_inner** internal layers each. If 1, do not use residual layers.",
-    ),
-    Kwarg(
-        'project_encodings',
-        True,
-        bool,
-        "Whether to apply a linear projection at the output of the encoders."
-    ),
-    Kwarg(
-        'resnet_n_layers_inner',
+        'n_layers_encoder',
         None,
         [int, None],
-        "Implement internal encoder layers as residual layers with **resnet_n_layers_inner** internal layers each. If ``None``, do not use residual layers.",
+        "Number of layers to use for encoder. If ``None``, inferred from length of **n_units_encoder**."
     ),
     Kwarg(
-        'factor_parse_labels',
+        'n_units_encoder',
+        None,
+        [int, str, None],
+        "Number of units to use in non-final encoder layers. Can be an ``int``, which will be used for all layers, a ``str`` with **n_layers_encoder** - 1 space-delimited integers, one for each layer in order from bottom to top. ``None`` is not permitted and will raise an error -- it exists here simply to force users to specify a value."
+    ),
+    Kwarg(
+        'encoder_activation',
+        'tanh',
+        [str, None],
+        "Name of activation to use at the output of the encoders.",
+    ),
+    Kwarg(
+        'encoder_recurrent_activation',
+        'sigmoid',
+        [str, None],
+        "Name of activation to use for recurrent gates.",
+    ),
+    Kwarg(
+        'encoder_projection_activation_inner',
+        'elu',
+        [str, None],
+        "Name of activation to use for prefinal layers in projection function of encoder.",
+    ),
+    Kwarg(
+        'encoder_resnet_n_layers_inner',
+        None,
+        [int, None],
+        "Implement internal encoder layers as residual layers with **encoder_resnet_n_layers_inner** internal layers each. If ``None``, do not use residual layers.",
+        aliases=['resnet_n_layers_inner']
+    ),
+
+    # Parsing decoder settings
+    Kwarg(
+        'n_layers_parsing_decoder',
+        None,
+        [int, None],
+        "Number of layers to use for parsing decoder. If ``None``, inferred from length of **parsing_n_units_decoder**.",
+        aliases=['n_layers_decoder']
+    ),
+    Kwarg(
+        'n_units_parsing_decoder',
+        None,
+        [int, str, None],
+        "Number of units to use in parsing decoder layers. Can be an ``int``, which will be used for all layers, a ``str`` with **parsing_n_layers_decoder** - 1 space-delimited integers, one for each layer in order from top to bottom. ``None`` is not permitted and will raise an error -- it exists here simply to force users to specify a value.",
+        aliases=['n_units_decoder']
+    ),
+    Kwarg(
+        'parsing_decoder_activation',
+        None,
+        [str, None],
+        "Name of activation to use at the output of the parsing decoder.",
+    ),
+    Kwarg(
+        'parsing_decoder_recurrent_activation',
+        'sigmoid',
+        [str, None],
+        "Name of activation to use for parsing decoder recurrent gates. Ignored unless parsing decoder is recurrent.",
+    ),
+    Kwarg(
+        'parsing_decoder_activation_inner',
+        'tanh',
+        [str, None],
+        "Name of activation to use for prefinal layers in the parsing decoder.",
+    ),
+    Kwarg(
+        'parsing_decoder_resnet_n_layers_inner',
+        None,
+        [int, None],
+        "Implement internal parsing decoder layers as residual layers with **parsing_decoder_resnet_n_layers_inner** internal layers each. If ``None``, do not use residual layers.",
+        aliases=['resnet_n_layers_inner']
+    ),
+
+    # STS decoder settings
+    Kwarg(
+        'sts_decoder_type',
+        'cnn',
+        str,
+        "STS decoder network type to use. One of ``['cnn', 'rnn']``.",
+    ),
+    Kwarg(
+        'n_layers_sts_decoder',
+        None,
+        [int, None],
+        "Number of layers to use for STS decoder. If ``None``, inferred from length of **sts_n_units_decoder**.",
+        aliases=['n_layers_decoder']
+    ),
+    Kwarg(
+        'n_units_sts_decoder',
+        300,
+        [int, str, None],
+        "Number of units to use in STS decoder layers. Can be an ``int``, which will be used for all layers, a ``str`` with **sts_n_layers_decoder**  space-delimited integers, one for each layer in order from top to bottom. ``None`` is not permitted and will raise an error -- it exists here simply to force users to specify a value.",
+        aliases=['n_units_decoder']
+    ),
+    Kwarg(
+        'sts_conv_kernel_size',
+        1,
+        [int, str],
+        "Size of kernel to use in convolutional STS decoder layers. Can be an ``int``, which will be used for all layers, or a ``str`` with **sts_n_layers_decoder**  space-delimited integers, one for each layer in order from top to bottom. Ignored unless **sts_decoder_type** is ``cnn``.",
+        aliases=['conv_kernel_size']
+    ),
+    Kwarg(
+        'bidirectional_sts_decoder',
         True,
         bool,
-        "Whether to factor parse labels into their (numeric) depth and (categorical) ancestor components and predict each separately. If ``False``, depth and category information is merged and treated as atomic.",
+        "Use bi-directional STS decoder. Ignored unless **sts_decoder_type** is ``rnn``."
+    ),
+    Kwarg(
+        'sts_decoder_activation',
+        None,
+        [str, None],
+        "Name of activation to use at the output of the STS decoder.",
+    ),
+    Kwarg(
+        'sts_decoder_recurrent_activation',
+        'sigmoid',
+        [str, None],
+        "Name of activation to use for STS decoder recurrent gates. Ignored unless **sts_decoder_type** is ``rnn``.",
+    ),
+    Kwarg(
+        'sts_decoder_activation_inner',
+        'tanh',
+        [str, None],
+        "Name of activation to use for prefinal layers in the STS decoder.",
+    ),
+    Kwarg(
+        'sts_projection_activation_inner',
+        'elu',
+        [str, None],
+        "Name of activation to use for prefinal layers in projection function of STS decoder.",
+    ),
+    Kwarg(
+        'project_sts_decodings',
+        False,
+        bool,
+        "Whether to apply a linear projection at the output of the STS decoder. Ignored unless **sts_decoder_type** is ``rnn``."
+    ),
+    Kwarg(
+        'sts_decoder_resnet_n_layers_inner',
+        None,
+        [int, None],
+        "Implement internal STS decoder layers as residual layers with **sts_decoder_resnet_n_layers_inner** internal layers each. If ``None``, do not use residual layers.",
+        aliases=['resnet_n_layers_inner']
+    ),
+    Kwarg(
+        'n_layers_sts_classifier',
+        None,
+        [int, None],
+        "Number of layers to use for STS classifier. If ``None``, inferred from length of **sts_n_units_classifier**.",
+        aliases=['n_layers_decoder']
+    ),
+    Kwarg(
+        'n_units_sts_classifier',
+        300,
+        [int, str, None],
+        "Number of units to use in STS classifier layers. Can be an ``int``, which will be used for all layers, a ``str`` with **sts_n_layers_classifier** - 1 space-delimited integers, one for each layer in order from top to bottom. ``None`` is not permitted and will raise an error -- it exists here simply to force users to specify a value.",
+        aliases=['n_units_decoder']
+    ),
+    Kwarg(
+        'sts_classifier_activation_inner',
+        'tanh',
+        [str, None],
+        "Name of activation to use for prefinal layers in the STS classifier.",
+    ),
+    Kwarg(
+        'sts_classifier_resnet_n_layers_inner',
+        None,
+        [int, None],
+        "Implement internal STS classifier layers as residual layers with **sts_classifier_resnet_n_layers_inner** internal layers each. If ``None``, do not use residual layers.",
+        aliases=['resnet_n_layers_inner']
     ),
 
     # Loss settings
@@ -378,24 +508,28 @@ SYN_SEM_NET_KWARGS = [
         1,
         [float, None],
         "Weight on parsing loss.",
+        aliases=['loss_scale']
     ),
     Kwarg(
         'parsing_adversarial_loss_scale',
         1,
         [float, None],
         "Weight on adversarial parsing loss.",
+        aliases=['adversarial_loss_scale']
     ),
     Kwarg(
         'sts_loss_scale',
         1,
         [float, None],
         "Weight on STS loss.",
+        aliases=['loss_scale']
     ),
     Kwarg(
         'sts_adversarial_loss_scale',
         1,
         [float, None],
         "Weight on adversarial STS loss.",
+        aliases=['adversarial_loss_scale']
     ),
 
     # Numeric settings
