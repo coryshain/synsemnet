@@ -154,17 +154,16 @@ def read_parse_label_file(path):
     return text, pos_label, parse_label
 
 
-# TODO: For Evan
 def read_sts_file(path):
     sts_s1_text = []
     sts_s2_text = []
     sts_label = []
 
     # COMPUTE THESE FROM FILE AT PATH
-    with open(path, 'r') as iff:
+    with open(path, 'r', encoding='utf-8') as iff:
         for line in iff:
             #_, _, _, _, label, s1, s2 = line.split("\t") #"sts-dev.tsv" has 7 fields- genre,subgenre,year,uid,score,s1,s2
-            fields = line.split("\t") # sometimes has 8th and 9th fields for source?
+            fields = line.strip().split("\t") # sometimes has 8th and 9th fields for source?
             label, s1, s2 = fields[4:7]
             label = int(round(float(label)))
             sts_s1_text.append(s1)
@@ -208,7 +207,6 @@ class Dataset(object):
         self.files = {}
 
         self.initialize_parsing_file(parsing_train_path, 'train')
-
         parsing_text = self.files['train']['parsing_text_src']
         pos_label = self.files['train']['pos_label_src']
         parse_label = self.files['train']['parse_label_src']
@@ -281,26 +279,20 @@ class Dataset(object):
             self.files[name]['parse_depth'] = None
             self.files[name]['parse_label'] = self.symbols_to_padded_seqs(name=name, data_type='parse_label')
 
-    # TODO: For Evan
     def cache_numeric_sts_data(self, name='train', factor_parse_labels=True):
-        self.files[name]['s1_text'], self.files[name]['s1_text_mask'] = self.symbols_to_padded_seqs(
+        self.files[name]['sts_s1_text'], self.files[name]['sts_s1_text_mask'] = self.symbols_to_padded_seqs(
                 name=name,
-                data_type='s1_text',
+                data_type='sts_s1_text',
                 return_mask=True
                 )
 
-        self.files[name]['s2_text'], self.files[name]['s2_text_mask'] = self.symbols_to_padded_seqs(
+        self.files[name]['sts_s2_text'], self.files[name]['sts_s2_text_mask'] = self.symbols_to_padded_seqs(
                 name=name,
-                data_type='s2_text',
+                data_type='sts_s2_text',
                 return_mask=True
                 )
 
-        self.files[name]['sts_label'] = self.symbols_to_padded_seqs(
-                name=name,
-                data_type='sts_label',
-                return_mask=False
-                )
-        return
+        self.files[name]['sts_label'] = np.fromiter(map(lambda x: int(round(float(x))), self.files[name]['sts_label_src']), dtype=int)
 
     def get_seqs(self, name='train', data_type='parsing_text_src', as_words=True):
         #pdb.set_trace()
@@ -378,7 +370,7 @@ class Dataset(object):
             return_mask=False
     ):
         data_type_tmp = data_type + '_src'
-        if data_type.lower() in ['parsing_text', 'sts_s1_text', 'sts_s1_text']:
+        if data_type.lower().endswith('text'):
             if word_tokenized:
                 if char_tokenized:
                     as_words = True
@@ -428,7 +420,7 @@ class Dataset(object):
             else:
                 f = self.parse_ancestor_to_int
         elif data_type.lower() == 'sts_label':
-            # TODO: For Evan
+            as_words = True
             f = lambda x: int(round(float(x)))
         else:
             raise ValueError('Unrecognized data_type "%s".' % data_type)
@@ -538,7 +530,7 @@ class Dataset(object):
         parse_label = self.files[name]['parse_label']
         parse_depth = self.files[name]['parse_depth']
 
-        n = self.get_n(name)
+        n = self.get_n(name, task='parsing')
 
         i = 0
 
@@ -568,14 +560,13 @@ class Dataset(object):
             minibatch_size=128,
             randomize=False
     ):
-        # TODO: For Evan
-        s1_text = self.files[name]['s1_text']
-        s2_text = self.files[name]['s2_text']
+        s1_text = self.files[name]['sts_s1_text']
+        s1_text_mask = self.files[name]['sts_s1_text_mask']
+        s2_text = self.files[name]['sts_s2_text']
+        s2_text_mask = self.files[name]['sts_s2_text_mask']
         sts_label = self.files[name]['sts_label']
-        s1_text_mask = self.files[name]['s1_text_mask']
-        s2_text_mask = self.files[name]['s2_text_mask']
 
-        n = len(self.files[name]['s1_text'])
+        n = self.get_n(name, task='sts')
 
         i = 0
 
@@ -588,12 +579,12 @@ class Dataset(object):
             indices = ix[i:i+minibatch_size]
 
             out = {
-                    's1_text': s1_text[indices],
-                    's2_text': s2_text[indices],
-                    'sts_label': sts_label[indices],
-                    's1_text_mask': s1_text[indices],
-                    's2_text_mask': s2_text[indices]
-                    }
+                'sts_s1_text': s1_text[indices],
+                'sts_s1_text_mask': s1_text_mask[indices],
+                'sts_s2_text': s2_text[indices],
+                'sts_s2_text_mask': s2_text_mask[indices],
+                'sts_label': sts_label[indices]
+            }
             yield out
             i += minibatch_size
 
@@ -606,14 +597,123 @@ class Dataset(object):
             minibatch_size=128,
             randomize=False
     ):
-        # TODO: Complete once STS data pipeline is finished
-        pass
+        # Parsing data
+        if parsing:
+            parsing_text = self.files[name]['parsing_text']
+            parsing_text_mask = self.files[name]['parsing_text_mask']
+            pos_label = self.files[name]['pos_label']
+            parse_label = self.files[name]['parse_label']
+            parse_depth = self.files[name]['parse_depth']
+            n_p = self.get_n(name, task='parsing')
+        else:
+            parsing_text = None
+            parsing_text_mask = None
+            pos_label = None
+            parse_label = None
+            parse_depth = None
+            n_p = 0
+        
+        # STS data
+        if sts:
+            sts_s1_text = self.files[name]['sts_s1_text']
+            sts_s1_text_mask = self.files[name]['sts_s1_text_mask']
+            sts_s2_text = self.files[name]['sts_s2_text']
+            sts_s2_text_mask = self.files[name]['sts_s2_text_mask']
+            sts_label = self.files[name]['sts_label']
+            n_s = self.get_n(name, task='sts')
+        else:
+            sts_s1_text = None
+            sts_s1_text_mask = None
+            sts_s2_text = None
+            sts_s2_text_mask = None
+            sts_label = None
+            n_s = 0
 
-    def get_n(self, name):
-        return len(self.files[name]['parsing_text'])
+        ix_p = None
+        ix_s = None
 
-    def get_n_minibatch(self, name, minibatch_size):
-        return math.ceil(self.get_n(name) / minibatch_size)
+        i_p = 0
+        i_s = 0
+
+        while True:
+            if parsing:
+                if ix_p is None:
+                    if randomize:
+                        ix_p, _ = get_random_permutation(n_p)
+                    else:
+                        ix_p = np.arange(n_p)
+    
+                indices_p = ix_p[i_p:i_p+minibatch_size]
+
+                parsing_text_cur = parsing_text[indices_p]
+                parsing_text_mask_cur = parsing_text_mask[indices_p]
+                pos_label_cur = pos_label[indices_p]
+                parse_label_cur = parse_label[indices_p]
+                parse_depth_cur = None if parse_depth is None else parse_depth[indices_p]
+
+                i_p += minibatch_size
+
+                if i_p >= n_p:
+                    i_p = 0
+                    ix_p = None
+            else:
+                parsing_text_cur = None
+                parsing_text_mask_cur = None
+                pos_label_cur = None
+                parse_label_cur = None
+                parse_depth_cur = None
+
+            if sts:
+                if ix_s is None:
+                    if randomize:
+                        ix_s, ix_inv_s = get_random_permutation(n_s)
+                    else:
+                        ix_s = np.arange(n_s)
+
+                indices_s = ix_s[i_s:i_s+minibatch_size]
+
+                sts_s1_text_cur = sts_s1_text[indices_s]
+                sts_s1_text_mask_cur = sts_s1_text_mask[indices_s]
+                sts_s2_text_cur = sts_s2_text[indices_s]
+                sts_s2_text_mask_cur = sts_s2_text_mask[indices_s]
+                sts_label_cur = sts_label[indices_s]
+
+                i_s += minibatch_size
+
+                if i_s >= n_s:
+                    i_s = 0
+                    ix_s = None
+
+            else:
+                sts_s1_text_cur = None
+                sts_s1_text_mask_cur = None
+                sts_s2_text_cur = None
+                sts_s2_text_mask_cur = None
+                sts_label_cur = None
+
+            out = {
+                'parsing_text': parsing_text_cur,
+                'parsing_text_mask': parsing_text_mask_cur,
+                'pos_label': pos_label_cur,
+                'parse_label': parse_label_cur,
+                'parse_depth': parse_depth_cur,
+                'sts_s1_text': sts_s1_text_cur,
+                'sts_s1_text_mask': sts_s1_text_mask_cur,
+                'sts_s2_text': sts_s2_text_cur,
+                'sts_s2_text_mask': sts_s2_text_mask_cur,
+                'sts_label': sts_label_cur
+            }
+            yield out
+
+    def get_n(self, name, task='parsing'):
+        if task.lower() == 'parsing':
+            return len(self.files[name]['parsing_text'])
+        elif task.lower() == 'sts':
+            return len(self.files[name]['sts_s1_text'])
+        raise ValueError('Unrecognized task "%s".' % task)
+
+    def get_n_minibatch(self, name, minibatch_size, task='parsing'):
+        return math.ceil(self.get_n(name, task=task) / minibatch_size)
 
     def parse_predictions_to_sequences(self, numeric_chars, numeric_pos, numeric_label, numeric_depth=None, mask=None):
         if mask is not None:
@@ -648,8 +748,8 @@ class Dataset(object):
             char_mask = None
             word_mask = None
 
-        s1_words = self.padded_seqs_to_symbols(numeric_chars, 's1_text', mask=char_mask, as_list=True)
-        s2_words = self.padded_seqs_to_symbols(numeric_chars2, 's2_text', mask=char_mask, as_list=True)
+        s1_words = self.padded_seqs_to_symbols(numeric_chars, 'sts_s1_text', mask=char_mask, as_list=True)
+        s2_words = self.padded_seqs_to_symbols(numeric_chars2, 'sts_s2_text', mask=char_mask, as_list=True)
         sts_labels = self.padded_seqs_to_symbols(numeric_label, 'sts_label', mask=word_mask, as_list=True)
 
         out = ''
@@ -723,12 +823,24 @@ class Dataset(object):
 
     def pretty_print_sts_predictions(
             self,
-            *args,
-            **kwargs
+            s1=None,
+            s1_mask=None,
+            s2=None,
+            s2_mask=None,
+            sts_true=None,
+            sts_pred=None
     ):
-        # TODO: For Evan
-        pass
+        s1 = self.padded_seqs_to_symbols(s1, 'sts_s1_text', mask=s1_mask)
+        s2 = self.padded_seqs_to_symbols(s2, 'sts_s2_text', mask=s2_mask)
 
+        out = ''
+        for i in range(len(s1)):
+            out += 'S1: ' + ''.join(s1[i]) + '\n'
+            out += 'S2: ' + ''.join(s2[i]) + '\n'
+            out += 'True: %d\n' % sts_true[i]
+            out += 'Pred: %d\n\n' % sts_pred[i]
+
+        return out
 
 
 

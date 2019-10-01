@@ -45,15 +45,18 @@ if __name__ == '__main__':
         stderr('Reading and processing data...\n')
         data = Dataset(p.parsing_train_data_path, p.sts_train_data_path)
         data.initialize_parsing_file(p.parsing_dev_data_path, 'dev')
+        data.initialize_sts_file(p.sts_dev_data_path, 'dev')
         with open(data_path, 'wb') as f:
             pickle.dump(data, f)
 
-    stderr('Caching numeric train data...\n')
+    stderr('Caching numeric parsing train data...\n')
     data.cache_numeric_parsing_data(name='train', factor_parse_labels=p['factor_parse_labels'])
-    stderr('Caching numeric dev data...\n')
+    stderr('Caching numeric parsing dev data...\n')
     data.cache_numeric_parsing_data(name='dev', factor_parse_labels=p['factor_parse_labels'])
 
+    stderr('Caching numeric STS train data...\n')
     data.cache_numeric_sts_data(name='train')
+    stderr('Caching numeric STS dev data...\n')
     data.cache_numeric_sts_data(name='dev')
 
     char_set = data.char_list
@@ -72,5 +75,5 @@ if __name__ == '__main__':
         **kwargs
     )
 
-    m.fit(data, 1000)
+    m.fit(data, 1000000)
 

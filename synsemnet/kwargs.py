@@ -249,19 +249,19 @@ SYN_SEM_NET_KWARGS = [
     # Checkpoint settings
     Kwarg(
         'save_freq',
-        1,
+        1000,
         int,
         "Frequency with which to save model checkpoints. If **streaming**, frequency is in minibatches and model is saved after each iteration; otherwise it's in iterations."
     ),
     Kwarg(
         'eval_freq',
-        1,
+        1000,
         int,
         "Frequency with which to evaluate model. If **streaming**, frequency is in minibatches and model is evaluated after each iteration; otherwise it's in iterations."
     ),
     Kwarg(
         'log_freq',
-        1,
+        1000,
         int,
         "Frequency with which to log summary data. If **streaming**, frequency is in minibatches and data is logged after each iteration; otherwise it's in iterations."
     ),
@@ -269,7 +269,7 @@ SYN_SEM_NET_KWARGS = [
         'log_graph',
         False,
         bool,
-        "Log the network graph to Tensorboard"
+        "Log the network graph to Tensorboard."
     ),
 
     # Data settings
@@ -370,6 +370,32 @@ SYN_SEM_NET_KWARGS = [
         True,
         bool,
         "Whether to factor parse labels into their (numeric) depth and (categorical) ancestor components and predict each separately. If ``False``, depth and category information is merged and treated as atomic.",
+    ),
+
+    # Loss settings
+    Kwarg(
+        'parsing_loss_scale',
+        1,
+        [float, None],
+        "Weight on parsing loss.",
+    ),
+    Kwarg(
+        'parsing_adversarial_loss_scale',
+        1,
+        [float, None],
+        "Weight on adversarial parsing loss.",
+    ),
+    Kwarg(
+        'sts_loss_scale',
+        1,
+        [float, None],
+        "Weight on STS loss.",
+    ),
+    Kwarg(
+        'sts_adversarial_loss_scale',
+        1,
+        [float, None],
+        "Weight on adversarial STS loss.",
     ),
 
     # Numeric settings
