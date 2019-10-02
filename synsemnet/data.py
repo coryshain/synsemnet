@@ -1,8 +1,10 @@
 import math
 import numpy as np
+import pickle
 import pdb
 
 from synsemnet.util import stderr
+from tree2labels.utils import sequence_to_parenthesis
 
 
 def get_char_set(text):
@@ -730,6 +732,18 @@ class Dataset(object):
         else:
             label = self.padded_seqs_to_symbols([numeric_depth, numeric_label], 'parse_joint', mask=word_mask, as_list=True, depth_on_all=False)
 
+        return words, pos, label
+
+
+    def parse_predictions_to_table(self, numeric_chars, numeric_pos, numeric_label, numeric_depth=None, mask=None):
+        words, pos, label = self.parse_predictions_to_sequences(
+            numeric_chars,
+            numeric_pos,
+            numeric_label,
+            numeric_depth=numeric_depth,
+            mask=mask
+        )
+
         out = ''
 
         for s_w, s_p, s_l in zip(words, pos, label):
@@ -739,27 +753,26 @@ class Dataset(object):
 
         return out
 
-    def sts_predictions_to_sequences(self, numeric_chars, numeric_chars2, numeric_label, mask=None):
-        # TODO: For Evan
-        if mask is not None:
-            char_mask = mask
-            word_mask = mask.any(axis=-1)
-        else:
-            char_mask = None
-            word_mask = None
+    def parse_predictions_to_trees(self, numeric_chars, numeric_pos, numeric_label, numeric_depth=None, mask=None, add_os=False):
+        words, pos, label = self.parse_predictions_to_sequences(
+            numeric_chars,
+            numeric_pos,
+            numeric_label,
+            numeric_depth=numeric_depth,
+            mask=mask
+        )
 
-        s1_words = self.padded_seqs_to_symbols(numeric_chars, 'sts_s1_text', mask=char_mask, as_list=True)
-        s2_words = self.padded_seqs_to_symbols(numeric_chars2, 'sts_s2_text', mask=char_mask, as_list=True)
-        sts_labels = self.padded_seqs_to_symbols(numeric_label, 'sts_label', mask=word_mask, as_list=True)
+        sentence = []
+        for i, (sw, sp) in enumerate(zip(words, pos)):
+            s_cur = [(w, p) for w, p in zip(sw, sp)]
+            if add_os:
+                s_cur = [('-BOS-', '-BOS')] + s_cur + [('-EOS-', '-EOS')]
+                label[i] = ['-BOS-'] + label[i] + ['-EOS-']
+            sentence.append(s_cur)
 
-        out = ''
-
-        for s_w1, s_w2, s_l in zip(s1_words, s2_words, sts_labels):
-            for x in zip(s_w1, s_w2, s_l):
-               out += '\t'.join(x) + '\n'
-            out += '\n'
-
-        return out 
+        trees = sequence_to_parenthesis(sentence, label)
+        
+        return trees
 
     def pretty_print_parse_predictions(
             self,

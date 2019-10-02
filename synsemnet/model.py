@@ -1953,6 +1953,9 @@ class SynSemNet(object):
 
                         self.update_logs(info_dict_dev, name='dev', task='parsing')
 
+                        sts_corr_sem = np.corrcoef(info_dict_dev['sts_true'], info_dict_dev['sts_prediction_sem'])[1,0]
+                        sts_corr_syn = np.corrcoef(info_dict_dev['sts_true'], info_dict_dev['sts_prediction_syn'])[1,0]
+
                         if verbose:
                             parse_samples = data.pretty_print_parse_predictions(
                                 text=info_dict_dev['parsing_text'][:n_print],
@@ -1966,6 +1969,14 @@ class SynSemNet(object):
                             )
                             stderr('Sample parsing predictions:\n\n' + parse_samples)
 
+                            self.print_parse_trees(
+                                data,
+                                info_dict_dev,
+                                syn=True,
+                                sem=True,
+                                name='dev'
+                            )
+
                             sts_samples = data.pretty_print_sts_predictions(
                                 s1=info_dict_dev['sts_s1_text'][:n_print],
                                 s1_mask=info_dict_dev['sts_s1_text_mask'][:n_print],
@@ -1975,6 +1986,9 @@ class SynSemNet(object):
                                 sts_pred=info_dict_dev['sts_prediction_sem'][:n_print]
                             )
                             stderr('Sample STS predictions:\n\n' + sts_samples)
+                            
+                            stderr('STS Pearson correlation (sem): %.4f\n' % sts_corr_sem)
+                            stderr('STS Pearson correlation (syn): %.4f\n\n' % sts_corr_syn)
 
                     if verbose:
                         t1_iter = time.time()
@@ -2032,70 +2046,162 @@ class SynSemNet(object):
     def get_parse_seqs(
             self,
             data,
-            info_dict
+            info_dict,
+            syn=True,
+            sem=True
     ):
         parse_seqs = {}
-        encoder = ['syn', 'sem']
-        label_type = ['true', 'prediction']
+        encoder = []
+        if syn:
+            encoder.append('syn')
+        if sem:
+            encoder.append('sem')
         for e in encoder:
-            for l in label_type:
-                if 'pos_label_%s_syn' % l in info_dict:
-                    if not e in parse_seqs:
-                        parse_seqs[e] = {}
-                    numeric_chars = info_dict['parsing_text']
-                    numeric_pos = info_dict['pos_label_%s_syn' % l]
-                    numeric_parse_label = info_dict['parse_label_%s_syn' % l]
-                    mask = info_dict['parsing_text_mask']
-                    if self.factor_parse_labels:
-                        numeric_depth = info_dict['parse_depth_%s_syn' % l]
-                    else:
-                        numeric_depth = None
+            if not e in parse_seqs:
+                parse_seqs[e] = {}
+            numeric_chars = info_dict['parsing_text']
+            numeric_pos = info_dict['pos_label_prediction_syn']
+            numeric_parse_label = info_dict['parse_label_prediction_syn']
+            mask = info_dict['parsing_text_mask']
+            if self.factor_parse_labels:
+                numeric_depth = info_dict['parse_depth_prediction_syn']
+            else:
+                numeric_depth = None
 
-                    seqs = data.parse_predictions_to_sequences(
-                        numeric_chars,
-                        numeric_pos,
-                        numeric_parse_label,
-                        numeric_depth=numeric_depth,
-                        mask=mask
-                    )
+            seqs = data.parse_predictions_to_sequences(
+                numeric_chars,
+                numeric_pos,
+                numeric_parse_label,
+                numeric_depth=numeric_depth,
+                mask=mask
+            )
+
+            parse_seqs[e] = seqs
 
         return parse_seqs
+
+    def get_parse_trees(
+            self,
+            data,
+            info_dict,
+            syn=True,
+            sem=True
+    ):
+        parse_trees = {}
+        encoder = []
+        if syn:
+            encoder.append('syn')
+        if sem:
+            encoder.append('sem')
+        for e in encoder:
+            if not e in parse_trees:
+                parse_trees[e] = {}
+            numeric_chars = info_dict['parsing_text']
+            numeric_pos = info_dict['pos_label_prediction_syn']
+            numeric_parse_label = info_dict['parse_label_prediction_syn']
+            mask = info_dict['parsing_text_mask']
+            if self.factor_parse_labels:
+                numeric_depth = info_dict['parse_depth_prediction_syn']
+            else:
+                numeric_depth = None
+
+            trees = data.parse_predictions_to_trees(
+                numeric_chars,
+                numeric_pos,
+                numeric_parse_label,
+                numeric_depth=numeric_depth,
+                mask=mask,
+                add_os=not self.os
+            )
+
+            parse_trees[e] = trees
+
+        return parse_trees
+
+    def print_parse_trees(
+            self,
+            data,
+            info_dict,
+            syn=True,
+            sem=True,
+            outdir=None,
+            name=None
+    ):
+        if outdir is None:
+            outdir = self.outdir
+
+        trees = self.get_parse_trees(
+            data,
+            info_dict,
+            syn=syn,
+            sem=sem
+        )
+
+        if syn:
+            trees_cur = '\n'.join(trees['syn'])
+            if name is not None:
+                cur_name = name + '_syn_parsed_trees.txt'
+            else:
+                cur_name = 'syn_parsed_trees.txt'
+
+            with open(outdir + '/' + cur_name, 'w') as f:
+                f.write(trees_cur)
+
+        if sem:
+            trees_cur = '\n'.join(trees['sem'])
+            if name is not None:
+                cur_name = name + '_sem_parsed_trees.txt'
+            else:
+                cur_name = 'sem_parsed_trees.txt'
+
+            with open(outdir + '/' + cur_name, 'w') as f:
+                f.write(trees_cur)
+
+    def eval_trees(
+            self,
+            goldpath,
+            syn=True,
+            sem=True,
+    ):
+        if os.path.exists(goldpath):
+            pass
+        else:
+            stderr('Path to gold trees provided (%s) does not exist.')
+
     
     def print_parse_seqs(
             self,
             data,
-            data_name='dev',
-            from_syn=True,
-            from_sem=True,
+            info_dict,
+            syn=True,
+            sem=True,
             outdir=None,
-            name=None,
-            verbose=True
+            name=None
     ):
         if outdir is None:
             outdir = self.outdir
 
         seqs = self.get_parse_seqs(
             data,
-            data_name=data_name,
-            from_syn=from_syn,
-            from_sem=from_sem,
-            verbose=verbose
+            info_dict,
+            syn=syn,
+            sem=sem
         )
 
-        if from_syn:
+        if syn:
             if name is not None:
-                cur_name = name + '_syn_parse_seqs.txt'
+                cur_name = name + '_syn_parsed_seqs.txt'
             else:
-                cur_name = 'syn_parse_seqs.txt'
+                cur_name = 'syn_parsed_seqs.txt'
 
             with open(outdir + '/' + cur_name, 'w') as f:
                 f.write(seqs['syn'])
 
-        if from_sem:
+        if sem:
             if name is not None:
-                cur_name = name + '_sem_parse_seqs.txt'
+                cur_name = name + '_sem_parsed_seqs.txt'
             else:
-                cur_name = 'sem_parse_seqs.txt'
+                cur_name = 'sem_parsed_seqs.txt'
 
             with open(outdir + '/' + cur_name, 'w') as f:
                 f.write(seqs['sem'])

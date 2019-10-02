@@ -21,6 +21,10 @@ class Config(object):
         self.parsing_dev_data_path = data.get('parsing_dev_data_path', './')
         self.parsing_test_data_path = data.get('parsing_test_data_path', './')
 
+        self.parsing_train_gold_trees_path = data.get('parsing_train_gold_trees_path', './')
+        self.parsing_dev_gold_trees_path = data.get('parsing_dev_gold_trees_path', './')
+        self.parsing_test_gold_trees_path = data.get('parsing_test_gold_trees_path', './')
+
         self.sts_train_data_path = data.get('sts_train_data_path', './')
         self.sts_dev_data_path = data.get('sts_dev_data_path', './')
         self.sts_test_data_path = data.get('sts_test_data_path', './')
