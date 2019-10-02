@@ -245,9 +245,10 @@ class Tree:
             x.collapse_unary()
 
     def remove_subcats(self):
-        c = self.c.split('-')[0]
-        c = c.split('=')[0]
-        self.c = c
+        if len(self.ch) > 0 and not self.c in ['-LRB-', '-RRB-', '-NONE-']:
+            c = self.c.split('-')[0]
+            c = c.split('=')[0]
+            self.c = c
         for x in self.ch:
             x.remove_subcats()
 

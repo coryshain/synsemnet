@@ -47,11 +47,13 @@ def get_parse_ancestor_set(parse_labels):
             parse_ancestor_set.add(l.split('_')[-1])
     return sorted(list(parse_ancestor_set))
 
+
 def get_sts_label_set(sts_labels):
     sts_label_set = set()
     for label in sts_labels:
         sts_label_set.add(label)
     return sorted(list(sts_label_set))
+
 
 def get_random_permutation(n):
     p = np.random.permutation(np.arange(n))
@@ -174,6 +176,7 @@ def read_sts_file(path):
 
     return sts_s1_text, sts_s2_text, sts_label
 
+
 def print_interlinearized(lines, max_tokens=20):
     out = []
     for l1 in zip(*lines):
@@ -198,6 +201,44 @@ def print_interlinearized(lines, max_tokens=20):
         string += '\n'
 
     return string
+
+
+def get_evalb_scores(path):
+    out = {
+        'all': {
+            'p': 0.,
+            'r': 0.,
+            'f': 0.
+        },
+        'lt40': {
+            'p': 0.,
+            'r': 0.,
+            'f': 0.
+        }
+    }
+    in_summary = False
+    metric_type = None
+    with open(path, 'r') as f:
+        for l in f:
+            if l.startswith('=== Summary'):
+                in_summary = True
+            elif in_summary and l.startswith('-- All'):
+                metric_type = 'all'
+            elif in_summary and l.startswith('-- len<=40'):
+                metric_type = 'lt40'
+            elif in_summary and l.startswith('Bracketing Recall'):
+                out[metric_type]['r'] = float(l.split('=')[-1].strip())
+            elif in_summary and l.startswith('Bracketing Precision'):
+                out[metric_type]['p'] = float(l.split('=')[-1].strip())
+            elif in_summary and l.startswith('Bracketing FMeasure'):
+                f = l.split('=')[-1].strip()
+                try:
+                    out[metric_type]['f'] = float(f)
+                except ValueError:
+                    out[metric_type]['f'] = 0.
+            elif in_summary and l.startswith('Tagging accuracy'):
+                out[metric_type]['tag'] = float(l.split('=')[-1].strip())
+    return out
 
 
 class Dataset(object):

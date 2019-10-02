@@ -531,6 +531,12 @@ SYN_SEM_NET_KWARGS = [
         "Weight on adversarial STS loss.",
         aliases=['adversarial_loss_scale']
     ),
+    Kwarg(
+        'well_formedness_loss_scale',
+        None,
+        [float, None],
+        "Weight on well-formedness losses to encourage well-formed trees."
+    ),
 
     # Numeric settings
     Kwarg(

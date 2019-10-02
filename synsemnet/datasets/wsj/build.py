@@ -119,7 +119,7 @@ if __name__ == '__main__':
     else:
         root = ''
 
-    exit_status = os.system(r'python2 tree2labels/dataset.py --train %s --dev %s --test %s --output %s --treebank wsj %s %s' % (train_path, dev_path, test_path, out_path, seq_bounds, root))
+    exit_status = os.system(r'python -m tree2labels.dataset --train %s --dev %s --test %s --output %s --treebank wsj %s %s' % (train_path, dev_path, test_path, out_path, seq_bounds, root))
 
     if exit_status == 0:
         stderr('Data build complete. Labels for training can be found in %s.\n' % (args.outdir + '/labels/'))

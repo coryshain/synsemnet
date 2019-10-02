@@ -7,6 +7,7 @@ import tensorflow as tf
 
 from .kwargs import SYN_SEM_NET_KWARGS
 from .backend import *
+from .data import get_evalb_scores
 from .util import *
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -352,7 +353,9 @@ class SynSemNet(object):
                 self.loss = 0
                 self.adversarial_loss = 0
                 
-                parsing_loss, parsing_adversarial_loss = self._initialize_parsing_objective()
+                parsing_loss, parsing_adversarial_loss = self._initialize_parsing_objective(
+                    well_formedness_loss_scale=self.well_formedness_loss_scale
+                )
                 self.loss += parsing_loss
                 self.adversarial_loss += parsing_adversarial_loss
                 
@@ -873,7 +876,7 @@ class SynSemNet(object):
             self.sts_logits_syn = self.sts_classifier_syn(self.sts_features_syn)
             self.sts_prediction_syn = tf.argmax(self.sts_logits_syn, axis=-1)
 
-    def _initialize_parsing_objective(self, well_formedness_loss=False):
+    def _initialize_parsing_objective(self, well_formedness_loss_scale=False):
         with self.sess.as_default():
             with self.sess.graph.as_default():
                 if self.parsing_loss_scale:
@@ -925,7 +928,7 @@ class SynSemNet(object):
                         loss += self.parse_depth_loss_syn
                         adversarial_loss += self.parse_depth_loss_sem
 
-                        if well_formedness_loss:
+                        if well_formedness_loss_scale:
                             # Define well-formedness losses.
                             #   ZERO SUM: In a valid tree, word-by-word changes in depth should sum to 0.
                             #             Encouraged by an L1 loss on the sum of the predicted depths.
@@ -939,15 +942,24 @@ class SynSemNet(object):
                             depth_abs_sums = tf.abs(tf.reduce_sum(masked_depth_logits, axis=1)) # Trying to make these 0
                             depth_abs_clipped_cumsums = tf.abs(tf.clip_by_value(tf.cumsum(masked_depth_logits), -np.inf, 0.))
 
-                            self.zero_sum_loss_syn = tf.reduce_sum(depth_abs_sums, axis=0) / zero_sum_denom
-                            self.no_neg_loss_syn = tf.reduce_sum(depth_abs_clipped_cumsums, axis=0) / no_neg_denom
+                            zero_sum_loss_syn = tf.reduce_sum(depth_abs_sums, axis=0) / zero_sum_denom
+                            zero_sum_loss_syn *= well_formedness_loss_scale
+                            no_neg_loss_syn = tf.reduce_sum(depth_abs_clipped_cumsums, axis=0) / no_neg_denom
+                            no_neg_loss_syn *= well_formedness_loss_scale
 
                             masked_depth_logits = self.parse_depth_logits_sem * self.parsing_word_mask
                             depth_abs_sums = tf.abs(tf.reduce_sum(masked_depth_logits, axis=1))  # Trying to make these 0
                             depth_abs_clipped_cumsums = tf.abs(tf.clip_by_value(tf.cumsum(masked_depth_logits), -np.inf, 0.))
 
-                            self.zero_sum_loss_sem = tf.reduce_sum(depth_abs_sums, axis=0) / zero_sum_denom
-                            self.no_neg_loss_sem = tf.reduce_sum(depth_abs_clipped_cumsums, axis=0) / no_neg_denom
+                            zero_sum_loss_sem = tf.reduce_sum(depth_abs_sums, axis=0) / zero_sum_denom
+                            zero_sum_loss_sem *= well_formedness_loss_scale
+                            no_neg_loss_sem = tf.reduce_sum(depth_abs_clipped_cumsums, axis=0) / no_neg_denom
+                            no_neg_loss_sem *= well_formedness_loss_scale
+
+                            self.zero_sum_loss_syn = zero_sum_loss_syn
+                            self.no_neg_loss_syn = no_neg_loss_syn
+                            self.zero_sum_loss_sem = zero_sum_loss_sem
+                            self.no_neg_loss_sem = no_neg_loss_sem
 
                             loss += self.zero_sum_loss_syn + self.no_neg_loss_syn
                             adversarial_loss += self.zero_sum_loss_sem + self.no_neg_loss_sem
@@ -960,7 +972,7 @@ class SynSemNet(object):
                 if self.parsing_loss_scale:
                     loss *= self.parsing_loss_scale
                 if self.parsing_adversarial_loss_scale:
-                    loss *= self.parsing_adversarial_loss_scale
+                    adversarial_loss *= self.parsing_adversarial_loss_scale
 
                 return loss, adversarial_loss
 
@@ -971,7 +983,7 @@ class SynSemNet(object):
                     self.sts_loss_sem = tf.losses.sparse_softmax_cross_entropy(
                         self.sts_label,
                         self.sts_logits_sem
-                    ) * self.sts_loss_scale
+                    )
                 else:
                     self.sts_loss_sem = 0
 
@@ -984,15 +996,17 @@ class SynSemNet(object):
                     self.sts_loss_syn = tf.losses.sparse_softmax_cross_entropy(
                         self.sts_label,
                         self.sts_logits_syn
-                    ) * self.sts_adversarial_loss_scale
+                    )
+                else:
+                    self.sts_loss_sy = 0
 
                 #self.sts_loss_syn = tf.losses.mean_squared_error(
                 #    self.sts_label,
                 #    self.sts_label_prediction_syn
                 #    )
 
-                loss = self.sts_loss_sem
-                adversarial_loss = self.sts_loss_syn
+                loss = self.sts_loss_sem * self.sts_loss_scale
+                adversarial_loss = self.sts_loss_syn * self.sts_adversarial_loss_scale
 
                 return loss, adversarial_loss
 
@@ -1079,38 +1093,62 @@ class SynSemNet(object):
         with self.sess.as_default():
             with self.sess.graph.as_default():
                 if self.log_graph:
-                    self.train_writer = tf.summary.FileWriter(self.outdir + '/tensorboard/train', self.sess.graph)
-                    self.dev_writer = tf.summary.FileWriter(self.outdir + '/tensorboard/dev', self.sess.graph)
+                    self.train_syn_writer = tf.summary.FileWriter(self.outdir + '/tensorboard/train_syn', self.sess.graph)
                 else:
-                    self.train_writer = tf.summary.FileWriter(self.outdir + '/tensorboard/train')
-                    self.dev_writer = tf.summary.FileWriter(self.outdir + '/tensorboard/dev')
+                    self.train_syn_writer = tf.summary.FileWriter(self.outdir + '/tensorboard/train_syn')
+                self.dev_syn_writer = tf.summary.FileWriter(self.outdir + '/tensorboard/dev_syn')
+                self.train_sem_writer = tf.summary.FileWriter(self.outdir + '/tensorboard/train_sem')
+                self.dev_sem_writer = tf.summary.FileWriter(self.outdir + '/tensorboard/dev_sem')
 
-                self.parsing_log_entries = self._initialize_parsing_log_entries(syn=True, sem=True)
-                self.parsing_log_summaries = self._initialize_parsing_log_summaries(self.parsing_log_entries)
-                self.parsing_summary = tf.summary.merge_all(key='parsing_losses')
-                
-                self.sts_log_entries = self._initialize_sts_log_entries(syn=True, sem=True)
-                self.sts_log_summaries = self._initialize_sts_log_summaries(self.sts_log_entries)
-                self.sts_summary = tf.summary.merge_all(key='sts_losses')
+                self.parsing_loss_log_entries = self._initialize_parsing_loss_log_entries()
+                self.parsing_eval_log_entries = self._initialize_parsing_eval_log_entries()
+                self.sts_loss_log_entries = self._initialize_sts_loss_log_entries()
+                self.sts_eval_log_entries = self._initialize_sts_eval_log_entries()
 
-    def _initialize_parsing_log_entries(self, syn=True, sem=True):
-        log_entries = []
-        if syn:
-            log_entries += [
-                'pos_label_loss_syn',
-                'parse_label_loss_syn',
-                'parse_depth_loss_syn',
-            ]
-        if sem:
-            log_entries += [
-                'pos_label_loss_sem',
-                'parse_label_loss_sem',
-                'parse_depth_loss_sem',
-            ]
-            
-        return log_entries
-        
-    def _initialize_parsing_log_summaries(self, log_entries, collection='parsing_losses'):
+                self.parsing_loss_log_summaries = self._initialize_log_summaries(
+                    self.parsing_loss_log_entries,
+                    collection='parsing_loss'
+                )
+                self.parsing_eval_log_summaries = self._initialize_log_summaries(
+                    self.parsing_eval_log_entries,
+                    collection='parsing_eval'
+                )
+                self.sts_loss_log_summaries = self._initialize_log_summaries(
+                    self.sts_loss_log_entries,
+                    collection='sts_loss'
+                )
+                self.sts_eval_log_summaries = self._initialize_log_summaries(
+                    self.sts_eval_log_entries,
+                    collection='sts_eval'
+                )
+
+                self.parsing_loss_summary = tf.summary.merge_all(key='parsing_loss')
+                self.parsing_eval_summary = tf.summary.merge_all(key='parsing_eval')
+                self.sts_loss_summary = tf.summary.merge_all(key='sts_loss')
+                self.sts_eval_summary = tf.summary.merge_all(key='sts_eval')
+
+    def _initialize_parsing_loss_log_entries(self):
+        return [
+            'pos_label_loss',
+            'parse_label_loss',
+            'parse_depth_loss',
+        ]
+
+    def _initialize_parsing_eval_log_entries(self):
+        return [
+            'f',
+            'p',
+            'r',
+            'tag',
+        ]
+
+    def _initialize_sts_loss_log_entries(self):
+        return ['sts_loss']
+
+    def _initialize_sts_eval_log_entries(self):
+        return ['sts_r']
+
+    def _initialize_log_summaries(self, log_entries, collection=None):
         with self.sess.as_default():
             with self.sess.graph.as_default():
                 log_summaries = {}
@@ -1120,26 +1158,12 @@ class SynSemNet(object):
                     tf.summary.scalar('%s/%s' % (collection, x), log_summaries[x], collections=[collection])
 
                 return log_summaries
-            
-    def _initialize_sts_log_entries(self, syn=True, sem=True):
-        log_entries = []
-        if syn:
-            log_entries += ['sts_loss_syn']
-        if sem:
-            log_entries += ['sts_loss_sem']
 
-        return log_entries
+    def _initialize_sts_metric_log_entries(self, syn=True, sem=True):
+        pass
 
-    def _initialize_sts_log_summaries(self, log_entries, collection='sts_losses'):
-        with self.sess.as_default():
-            with self.sess.graph.as_default():
-                log_summaries = {}
-
-                for x in log_entries:
-                    log_summaries[x] = tf.placeholder(self.FLOAT_TF, shape=[], name=x + '_placeholder')
-                    tf.summary.scalar('%s/%s' % (collection, x), log_summaries[x], collections=[collection])
-
-                return log_summaries
+    def _initialize_sts_metric_log_summaries(self, log_entries, collection='parsing_metrics'):
+        pass
         
 
     ############################################################
@@ -1460,7 +1484,7 @@ class SynSemNet(object):
         else:
             if return_syn_parsing_predictions or return_sem_parsing_predictions:
                 if verbose:
-                    stderr('Generating parses...\n')
+                    stderr('Extracting parse predictions...\n')
                 if minibatch_size is None:
                     minibatch_size = self.minibatch_size
                 if n_minibatch is None:
@@ -1496,7 +1520,7 @@ class SynSemNet(object):
 
             if return_syn_sts_predictions or return_sem_sts_predictions:
                 if verbose:
-                    stderr('Generating STS labels...\n')
+                    stderr('Extracting STS predictions...\n')
                 if minibatch_size is None:
                     minibatch_size = self.minibatch_size
                 if n_minibatch is None:
@@ -1781,32 +1805,85 @@ class SynSemNet(object):
 
         return out
 
-    def update_logs(self, info_dict, name='train', task='parsing'):
+    def report_parseval(self, parseval, indent=0):
+        out = ''
+        for e in ('syn', 'sem'):
+            out += ' ' * indent + 'Parse eval (%s):\n' % e
+
+            k = 'f_' + e
+            if k in parseval:
+                v = parseval[k]
+            else:
+                v = 0.
+            out += ' ' * (indent + 2) + 'Brac F: %.4f\n' % v
+
+            k = 'p_' + e
+            if k in parseval:
+                v = parseval[k]
+            else:
+                v = 0.
+            out += ' ' * (indent + 2) + 'Brac P: %.4f\n' % v
+
+            k = 'r_' + e
+            if k in parseval:
+                v = parseval[k]
+            else:
+                v = 0.
+            out += ' ' * (indent + 2) + 'Brac R: %.4f\n' % v
+
+            k = 'tag_' + e
+            if k in parseval:
+                v = parseval[k]
+            else:
+                v = 0.
+            out += ' ' * (indent + 2) + 'Tag Acc: %.4f\n' % v
+
+        return out
+
+    def update_logs(self, info_dict, name='train', encoder='syn', task='parsing', update_type='loss'):
         with self.sess.as_default():
             with self.sess.graph.as_default():
-                if name.lower() == 'train':
-                    writer = self.train_writer
-                elif name.lower() == 'dev':
-                    writer = self.dev_writer
-                else:
-                    raise ValueError('Unrecognized summary name "%s".' % name)
+                if not isinstance(name, list):
+                    name = [name]
+                if not isinstance(encoder, list):
+                    encoder = [encoder]
+                if not isinstance(task, list):
+                    task = [task]
+                if not isinstance(update_type, list):
+                    update_type = [update_type]
 
-                fd_summary = {}
+                for n in name:
+                    for e in encoder:
+                        writer = getattr(self, '%s_%s_writer' % (n, e))
+                        for t in task:
+                            for u in update_type:
+                                fd_summary = {}
+                                if t.lower() == 'parsing':
+                                    if u.lower() == 'loss':
+                                        log_summaries = self.parsing_loss_log_summaries
+                                        summary = self.parsing_loss_summary
+                                    elif u.lower() == 'eval':
+                                        log_summaries = self.parsing_eval_log_summaries
+                                        summary = self.parsing_eval_summary
+                                    else:
+                                        raise ValueError('Unrecognized update_type "%s".' % u)
+                                elif t.lower() == 'sts':
+                                    if u.lower() == 'loss':
+                                        log_summaries = self.sts_loss_log_summaries
+                                        summary = self.sts_loss_summary
+                                    elif u.lower() == 'eval':
+                                        log_summaries = self.sts_eval_log_summaries
+                                        summary = self.sts_eval_summary
+                                    else:
+                                        raise ValueError('Unrecognized update_type "%s".' % u)
+                                else:
+                                    raise ValueError('Unrecognized task "%s".' % t)
 
-                if task.lower() == 'parsing':
-                    log_summaries = self.parsing_log_summaries
-                    summary = self.parsing_summary
-                elif task.lower() == 'sts':
-                    log_summaries = self.sts_log_summaries
-                    summary = self.sts_summary
-                else:
-                    raise ValueError('Unrecognized task "%s".' % task)
+                                for k in log_summaries:
+                                    fd_summary[log_summaries[k]] = info_dict[k + '_' + e]
 
-                for k in self.parsing_log_summaries:
-                    fd_summary[log_summaries[k]] = info_dict[k]
-
-                summary_out = self.sess.run(summary, feed_dict=fd_summary)
-                writer.add_summary(summary_out, self.global_batch_step.eval(session=self.sess))
+                                summary_out = self.sess.run(summary, feed_dict=fd_summary)
+                                writer.add_summary(summary_out, self.global_batch_step.eval(session=self.sess))
 
     def report_n_params(self, indent=0):
         with self.sess.as_default():
@@ -1825,10 +1902,105 @@ class SynSemNet(object):
 
                 return out
 
+    def evaluate(
+            self,
+            data,
+            gold_tree_path=None,
+            data_name='dev',
+            n_print=5,
+            update_logs=True,
+            verbose=True
+    ):
+        with self.sess.as_default():
+            with self.sess.graph.as_default():
+                if verbose:
+                    stderr('-' * 50 + '\n')
+                    stderr('%s set evaluation\n\n' % data_name.upper())
+        
+                info_dic = self._run_batches(
+                    data,
+                    data_name=data_name,
+                    minibatch_size=self.eval_minibatch_size,
+                    update=False,
+                    randomize=False,
+                    return_syn_parsing_losses=True,
+                    return_sem_parsing_losses=True,
+                    return_syn_parsing_predictions=True,
+                    return_sem_parsing_predictions=True,
+                    return_syn_sts_losses=True,
+                    return_sem_sts_losses=True,
+                    return_syn_sts_predictions=True,
+                    return_sem_sts_predictions=True,
+                    verbose=verbose
+                )
+        
+                if verbose:
+                    stderr('Evaluating...\n')
+        
+                if gold_tree_path is None:
+                    eval_metrics = self.eval_sts_predictions(
+                        info_dic,
+                        syn=True,
+                        sem=True
+                    )
+                    task = ['sts']
+                else:
+                    eval_metrics = self.eval_predictions(
+                        data,
+                        info_dic,
+                        gold_tree_path,
+                        syn=True,
+                        sem=True,
+                        name=data_name
+                    )
+                    task = ['parsing', 'sts']
+        
+                info_dic.update(eval_metrics)
+        
+                if update_logs:
+                    self.update_logs(
+                        info_dic,
+                        name=data_name,
+                        encoder=['syn', 'sem'],
+                        task=task,
+                        update_type=['loss', 'eval']
+                    )
+        
+                if verbose:
+                    parse_samples = data.pretty_print_parse_predictions(
+                        text=info_dic['parsing_text'][:n_print],
+                        pos_label_true=info_dic['pos_label_true'][:n_print],
+                        pos_label_pred=info_dic['pos_label_prediction_syn'][:n_print],
+                        parse_label_true=info_dic['parse_label_true'][:n_print],
+                        parse_label_pred=info_dic['parse_label_prediction_syn'][:n_print],
+                        parse_depth_true=info_dic['parse_depth_true'][:n_print] if self.factor_parse_labels else None,
+                        parse_depth_pred=info_dic['parse_depth_prediction_syn'][:n_print] if self.factor_parse_labels else None,
+                        mask=info_dic['parsing_text_mask'][:n_print]
+                    )
+                    stderr('Sample parsing predictions:\n\n' + parse_samples)
+        
+                    sts_samples = data.pretty_print_sts_predictions(
+                        s1=info_dic['sts_s1_text'][:n_print],
+                        s1_mask=info_dic['sts_s1_text_mask'][:n_print],
+                        s2=info_dic['sts_s2_text'][:n_print],
+                        s2_mask=info_dic['sts_s2_text_mask'][:n_print],
+                        sts_true=info_dic['sts_true'][:n_print],
+                        sts_pred=info_dic['sts_prediction_sem'][:n_print]
+                    )
+                    stderr('Sample STS predictions:\n\n' + sts_samples)
+        
+                    if gold_tree_path is not None:
+                        stderr(self.report_parseval(info_dic))
+        
+                    stderr('STS Pearson correlation (sem): %.4f\n' % info_dic['sts_r_sem'])
+                    stderr('STS Pearson correlation (syn): %.4f\n\n' % info_dic['sts_r_syn'])
+
     def fit(
             self,
             data,
             n_minibatch,
+            train_gold_tree_path=None,
+            dev_gold_tree_path=None,
             n_print=5,
             run_initial_eval=False,
             verbose=True
@@ -1853,47 +2025,23 @@ class SynSemNet(object):
         with self.sess.as_default():
             with self.sess.graph.as_default():
                 if run_initial_eval and self.global_batch_step.eval(session=self.sess) == 0:
-                    if verbose:
-                        stderr('Running initial evaluation...\n')
-
-                    info_dict_train = self._run_batches(
+                    self.evaluate(
                         data,
+                        gold_tree_path=train_gold_tree_path,
                         data_name='train',
-                        minibatch_size=self.eval_minibatch_size,
-                        update=False,
-                        randomize=False,
-                        return_syn_parsing_losses=True,
-                        return_sem_parsing_losses=True,
-                        return_syn_parsing_predictions=False,
-                        return_sem_parsing_predictions=False,
-                        return_syn_sts_losses=True,
-                        return_sem_sts_losses=True,
-                        return_syn_sts_predictions=False,
-                        return_sem_sts_predictions=False,
+                        n_print=n_print,
+                        update_logs=True,
                         verbose=verbose
                     )
 
-                    self.update_logs(info_dict_train, name='train', task='parsing')
-                    self.update_logs(info_dict_train, name='train', task='sts')
-
-                    info_dict_dev = self._run_batches(
+                    self.evaluate(
                         data,
+                        gold_tree_path=dev_gold_tree_path,
                         data_name='dev',
-                        minibatch_size=self.eval_minibatch_size,
-                        update=False,
-                        randomize=False,
-                        return_syn_parsing_losses=True,
-                        return_sem_parsing_losses=True,
-                        return_syn_parsing_predictions=False,
-                        return_sem_parsing_predictions=False,
-                        return_syn_sts_losses=True,
-                        return_sem_sts_losses=True,
-                        return_syn_sts_predictions=False,
-                        return_sem_sts_predictions=False,
+                        n_print=n_print,
+                        update_logs=True,
                         verbose=verbose
                     )
-
-                    self.update_logs(info_dict_dev, name='dev', task='parsing')
 
                 i = self.global_batch_step.eval(session=self.sess)
 
@@ -1927,68 +2075,23 @@ class SynSemNet(object):
                         self.save()
 
                     if log:
-                        self.update_logs(info_dict_train, name='train', task='parsing')
-
-                    if evaluate:
-                        if verbose:
-                            stderr('-' * 50 + '\n')
-                            stderr('Dev set evaluation\n')
-
-                        info_dict_dev = self._run_batches(
-                            data,
-                            data_name='dev',
-                            minibatch_size=self.eval_minibatch_size,
-                            update=False,
-                            randomize=False,
-                            return_syn_parsing_losses=True,
-                            return_sem_parsing_losses=True,
-                            return_syn_parsing_predictions=True,
-                            return_sem_parsing_predictions=True,
-                            return_syn_sts_losses=True,
-                            return_sem_sts_losses=True,
-                            return_syn_sts_predictions=True,
-                            return_sem_sts_predictions=True,
-                            verbose=verbose
+                        self.update_logs(
+                            info_dict_train,
+                            name='train',
+                            encoder=['syn', 'sem'],
+                            task=['parsing','sts'],
+                            update_type='loss'
                         )
 
-                        self.update_logs(info_dict_dev, name='dev', task='parsing')
-
-                        sts_corr_sem = np.corrcoef(info_dict_dev['sts_true'], info_dict_dev['sts_prediction_sem'])[1,0]
-                        sts_corr_syn = np.corrcoef(info_dict_dev['sts_true'], info_dict_dev['sts_prediction_syn'])[1,0]
-
-                        if verbose:
-                            parse_samples = data.pretty_print_parse_predictions(
-                                text=info_dict_dev['parsing_text'][:n_print],
-                                pos_label_true=info_dict_dev['pos_label_true'][:n_print],
-                                pos_label_pred=info_dict_dev['pos_label_prediction_syn'][:n_print],
-                                parse_label_true=info_dict_dev['parse_label_true'][:n_print],
-                                parse_label_pred=info_dict_dev['parse_label_prediction_syn'][:n_print],
-                                parse_depth_true=info_dict_dev['parse_depth_true'][:n_print] if self.factor_parse_labels else None,
-                                parse_depth_pred=info_dict_dev['parse_depth_prediction_syn'][:n_print] if self.factor_parse_labels else None,
-                                mask=info_dict_dev['parsing_text_mask'][:n_print]
-                            )
-                            stderr('Sample parsing predictions:\n\n' + parse_samples)
-
-                            self.print_parse_trees(
-                                data,
-                                info_dict_dev,
-                                syn=True,
-                                sem=True,
-                                name='dev'
-                            )
-
-                            sts_samples = data.pretty_print_sts_predictions(
-                                s1=info_dict_dev['sts_s1_text'][:n_print],
-                                s1_mask=info_dict_dev['sts_s1_text_mask'][:n_print],
-                                s2=info_dict_dev['sts_s2_text'][:n_print],
-                                s2_mask=info_dict_dev['sts_s2_text_mask'][:n_print],
-                                sts_true=info_dict_dev['sts_true'][:n_print],
-                                sts_pred=info_dict_dev['sts_prediction_sem'][:n_print]
-                            )
-                            stderr('Sample STS predictions:\n\n' + sts_samples)
-                            
-                            stderr('STS Pearson correlation (sem): %.4f\n' % sts_corr_sem)
-                            stderr('STS Pearson correlation (syn): %.4f\n\n' % sts_corr_syn)
+                    if evaluate:
+                        self.evaluate(
+                            data,
+                            gold_tree_path=dev_gold_tree_path,
+                            data_name='dev',
+                            n_print=n_print,
+                            update_logs=True,
+                            verbose=verbose
+                        )
 
                     if verbose:
                         t1_iter = time.time()
@@ -2097,11 +2200,11 @@ class SynSemNet(object):
             if not e in parse_trees:
                 parse_trees[e] = {}
             numeric_chars = info_dict['parsing_text']
-            numeric_pos = info_dict['pos_label_prediction_syn']
-            numeric_parse_label = info_dict['parse_label_prediction_syn']
+            numeric_pos = info_dict['pos_label_prediction_%s' % e] 
+            numeric_parse_label = info_dict['parse_label_prediction_%s' % e]
             mask = info_dict['parsing_text_mask']
             if self.factor_parse_labels:
-                numeric_depth = info_dict['parse_depth_prediction_syn']
+                numeric_depth = info_dict['parse_depth_prediction_%s' % e]
             else:
                 numeric_depth = None
 
@@ -2129,6 +2232,8 @@ class SynSemNet(object):
     ):
         if outdir is None:
             outdir = self.outdir
+        if outdir[-1] != '/':
+            outdir += '/'
 
         trees = self.get_parse_trees(
             data,
@@ -2137,24 +2242,19 @@ class SynSemNet(object):
             sem=sem
         )
 
+        encoder = []
         if syn:
-            trees_cur = '\n'.join(trees['syn'])
-            if name is not None:
-                cur_name = name + '_syn_parsed_trees.txt'
-            else:
-                cur_name = 'syn_parsed_trees.txt'
-
-            with open(outdir + '/' + cur_name, 'w') as f:
-                f.write(trees_cur)
-
+            encoder.append('syn')
         if sem:
-            trees_cur = '\n'.join(trees['sem'])
+            encoder.append('sem')
+        for e in encoder:
+            trees_cur = '\n'.join(trees[e])
             if name is not None:
-                cur_name = name + '_sem_parsed_trees.txt'
+                pred_path = outdir + name + '_parsed_trees_%s.txt' % e
             else:
-                cur_name = 'sem_parsed_trees.txt'
+                pred_path = outdir + 'parsed_trees_%s.txt' % e
 
-            with open(outdir + '/' + cur_name, 'w') as f:
+            with open(pred_path, 'w') as f:
                 f.write(trees_cur)
 
     def eval_trees(
@@ -2162,12 +2262,122 @@ class SynSemNet(object):
             goldpath,
             syn=True,
             sem=True,
+            outdir=None,
+            name=None
     ):
+        if outdir is None:
+            outdir = self.outdir
+        if outdir[-1] != '/':
+            outdir += '/'
+
+        evalb_path = os.path.abspath('tree2labels/EVALB/evalb')
+
         if os.path.exists(goldpath):
-            pass
+            parseval = {}
+            encoder = []
+            if syn:
+                encoder.append('syn')
+            if sem:
+                encoder.append('sem')
+            for e in encoder:
+                if name is not None:
+                    pred_path = outdir + name + '_parsed_trees_%s.txt' % e
+                    eval_path = outdir + name + '_parseval_%s.txt' % e
+                else:
+                    pred_path = outdir + 'parsed_trees_%s.txt' % e
+                    eval_path = outdir + 'parseval_%s.txt' % e
+
+                exit_status = os.system('%s %s %s > %s' % (evalb_path, goldpath, pred_path, eval_path))
+                
+                assert exit_status == 0, 'Call to EVALB failed. See above for traceback.'
+
+                parseval[e] = get_evalb_scores(eval_path)
+
+            out = {}
+            for e in parseval:
+                for m in parseval[e]['all']:
+                    out['_'.join((m, e))] = parseval[e]['all'][m]
+
         else:
             stderr('Path to gold trees provided (%s) does not exist.')
+            out = {}
 
+        return out
+
+    def eval_parse_predictions(
+            self,
+            data,
+            info_dict,
+            goldpath,
+            syn=True,
+            sem=True,
+            outdir=None,
+            name=None
+    ):
+        self.print_parse_trees(
+            data,
+            info_dict,
+            syn=syn,
+            sem=sem,
+            outdir=outdir,
+            name=name
+        )
+
+        out = self.eval_trees(
+            goldpath,
+            syn=syn,
+            sem=sem,
+            outdir=outdir,
+            name=name
+        )
+
+        return out
+
+    def eval_sts_predictions(
+            self,
+            info_dict,
+            syn=True,
+            sem=True,
+    ):
+        encoder = []
+        if syn:
+            encoder.append('syn')
+        if sem:
+            encoder.append('sem')
+
+        out = {}
+        for e in encoder:
+            r = np.corrcoef(info_dict['sts_true'], info_dict['sts_prediction_%s' % e])[1, 0]
+            out['sts_r_%s' % e] = r
+
+        return out
+
+    def eval_predictions(
+            self,
+            data,
+            info_dict,
+            goldpath,
+            syn=True,
+            sem=True,
+            outdir=None,
+            name=None
+    ):
+        out = self.eval_parse_predictions(
+                data,
+                info_dict,
+                goldpath,
+                syn=syn,
+                sem=sem,
+                outdir=outdir,
+                name=name
+        )
+        out.update(self.eval_sts_predictions(
+            info_dict,
+            syn=syn,
+            sem=syn,
+        ))
+
+        return out
     
     def print_parse_seqs(
             self,
@@ -2180,6 +2390,8 @@ class SynSemNet(object):
     ):
         if outdir is None:
             outdir = self.outdir
+        if outdir[-1] != '/':
+            outdir += '/'
 
         seqs = self.get_parse_seqs(
             data,
@@ -2188,23 +2400,20 @@ class SynSemNet(object):
             sem=sem
         )
 
+        encoder = []
         if syn:
-            if name is not None:
-                cur_name = name + '_syn_parsed_seqs.txt'
-            else:
-                cur_name = 'syn_parsed_seqs.txt'
-
-            with open(outdir + '/' + cur_name, 'w') as f:
-                f.write(seqs['syn'])
-
+            encoder.append('syn')
         if sem:
-            if name is not None:
-                cur_name = name + '_sem_parsed_seqs.txt'
-            else:
-                cur_name = 'sem_parsed_seqs.txt'
+            encoder.append('sem')
 
-            with open(outdir + '/' + cur_name, 'w') as f:
-                f.write(seqs['sem'])
+        for e in encoder:
+            if name is not None:
+                pred_path = outdir + name + '_parsed_seqs_%s.txt' % e
+            else:
+                pred_path = outdir + '_parsed_seqs_%s.txt' % e
+
+            with open(pred_path, 'w') as f:
+                f.write(seqs[e])
 
 
 

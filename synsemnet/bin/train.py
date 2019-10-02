@@ -75,5 +75,10 @@ if __name__ == '__main__':
         **kwargs
     )
 
-    m.fit(data, 1000000)
+    m.fit(
+        data,
+        1000000,
+        train_gold_tree_path=p.parsing_train_gold_trees_path,
+        dev_gold_tree_path=p.parsing_dev_gold_trees_path
+    )
 
