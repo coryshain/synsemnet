@@ -134,7 +134,7 @@ class SynSemNet(object):
         else:
             self.sts_kernel_size = self.sts_conv_kernel_size
 
-        assert len(self.units_sts_decoder) == len(self.sts_conv_kernel_size) == self.layers_sts_decoder, 'Misalignment in number of layers between n_layers_sts_decoder, sts_conv_kernel_size, and n_units_sts_decoder.'
+        assert len(self.units_sts_decoder) == len(self.sts_kernel_size) == self.layers_sts_decoder, 'Misalignment in number of layers between n_layers_sts_decoder, sts_conv_kernel_size, and n_units_sts_decoder.'
 
         # STS classifier layers and units
         assert not self.n_units_sts_classifier is None, 'You must provide a value for **n_units_sts_classifier** when initializing a SynSemNet model.'
