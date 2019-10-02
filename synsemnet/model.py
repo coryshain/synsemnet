@@ -1639,7 +1639,7 @@ class SynSemNet(object):
                     else:
                         self.saver.restore(self.sess, path)
                 except tf.errors.DataLossError:
-                    sys.stderr.write('Read failure during load. Trying from backup...\n')
+                    stderr('Read failure during load. Trying from backup...\n')
                     if predict:
                         self.ema_saver.restore(self.sess, path[:-5] + '_backup.ckpt')
                     else:
@@ -1658,12 +1658,12 @@ class SynSemNet(object):
 
                         missing_in_ckpt = model_var_names_set - ckpt_var_names_set
                         if len(missing_in_ckpt) > 0:
-                            sys.stderr.write(
+                            stderr(
                                 'Checkpoint file lacked the variables below. They will be left at their initializations.\n%s.\n\n' % (
                                     sorted(list(missing_in_ckpt))))
                         missing_in_model = ckpt_var_names_set - model_var_names_set
                         if len(missing_in_model) > 0:
-                            sys.stderr.write(
+                            stderr(
                                 'Checkpoint file contained the variables below which do not exist in the current model. They will be ignored.\n%s.\n\n' % (
                                     sorted(list(missing_in_ckpt))))
 

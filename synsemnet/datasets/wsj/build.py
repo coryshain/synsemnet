@@ -4,6 +4,7 @@ import re
 import argparse
 
 from ...tree import Tree
+from ...util import stderr
 
 
 def clean_up_trees(path):
@@ -47,8 +48,7 @@ if __name__ == '__main__':
     args = argparser.parse_args()
 
     if not os.path.exists('tree2labels'):
-        sys.stderr.write('Cloning sequence labeling code from Gomez-Rodriguez & Vilares 2018...\n')
-        sys.stderr.flush()
+        stderr('Cloning sequence labeling code from Gomez-Rodriguez & Vilares 2018...\n')
         os.system(r'git clone https://github.com/aghie/tree2labels.git')
 
     if not os.path.exists(args.outdir):
@@ -62,8 +62,7 @@ if __name__ == '__main__':
     t = Tree()
 
     # Build training set
-    sys.stderr.write('Post-processing training set trees...\n')
-    sys.stderr.flush()
+    stderr('Post-processing training set trees...\n')
     training_set = []
     for d in ['%02d' % i for i in range(1, 22)]:
         dir_path = args.dir_path + '/parsed/mrg/wsj/%s' % d
@@ -72,8 +71,7 @@ if __name__ == '__main__':
             training_set += new_trees
 
     # Build dev set
-    sys.stderr.write('Post-processing dev set trees...\n')
-    sys.stderr.flush()
+    stderr('Post-processing dev set trees...\n')
     dev_set = []
     d = '22'
     dir_path = args.dir_path + '/parsed/mrg/wsj/%s' % d
@@ -82,8 +80,7 @@ if __name__ == '__main__':
         dev_set += new_trees
 
     # Build test set
-    sys.stderr.write('Post-processing test set trees...\n')
-    sys.stderr.flush()
+    stderr('Post-processing test set trees...\n')
     test_set = []
     d = '23'
     dir_path = args.dir_path + '/parsed/mrg/wsj/%s' % d
@@ -104,8 +101,7 @@ if __name__ == '__main__':
     with open(args.outdir + '/trees/wsj-test.txt', 'w') as f:
         f.write('\n'.join(test_set))
 
-    sys.stderr.write('Converting trees into label sequence...\n')
-    sys.stderr.flush()
+    stderr('Converting trees into label sequence...\n')
 
     out_path = args.outdir + '/labels'
     train_path = args.outdir + '/trees/wsj-train.txt'
@@ -126,7 +122,7 @@ if __name__ == '__main__':
     exit_status = os.system(r'python2 tree2labels/dataset.py --train %s --dev %s --test %s --output %s --treebank wsj %s %s' % (train_path, dev_path, test_path, out_path, seq_bounds, root))
 
     if exit_status == 0:
-        sys.stderr.write('Data build complete. Labels for training can be found in %s.\n' % (args.outdir + '/labels/'))
+        stderr('Data build complete. Labels for training can be found in %s.\n' % (args.outdir + '/labels/'))
     else:
-        sys.stderr.write('Data build failed. See traceback for details.\n')
+        stderr('Data build failed. See traceback for details.\n')
 
