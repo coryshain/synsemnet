@@ -138,8 +138,9 @@ class SynSemNet(object):
         assert len(self.units_sts_decoder) == len(self.sts_kernel_size) == self.layers_sts_decoder, 'Misalignment in number of layers between n_layers_sts_decoder, sts_conv_kernel_size, and n_units_sts_decoder.'
 
         # STS classifier layers and units
-        assert not self.n_units_sts_classifier is None, 'You must provide a value for **n_units_sts_classifier** when initializing a SynSemNet model.'
-        if isinstance(self.n_units_sts_classifier, str):
+        if self.n_units_sts_classifier is None:
+            self.units_sts_classifier = []
+        elif isinstance(self.n_units_sts_classifier, str):
             self.units_sts_classifier = [int(x) for x in self.n_units_sts_classifier.split()]
         elif isinstance(self.n_units_sts_classifier, int):
             if self.n_layers_sts_classifier is None:
@@ -444,8 +445,12 @@ class SynSemNet(object):
                 self.sts_s2_character_embeddings_syn = tf.gather(self.syntactic_character_embedding_matrix, self.sts_s2_characters)
                 self.sts_s2_character_embeddings_sem = tf.gather(self.semantic_character_embedding_matrix, self.sts_s2_characters)
 
-                #self.sts_label = tf.placeholder(self.FLOAT_TF, shape=[None], name='sts_label')
-                self.sts_label = tf.placeholder(self.INT_TF, shape=[None], name='sts_label')
+                if self.sts_loss_type.lower() == 'mse':
+                    self.sts_label = tf.placeholder(self.FLOAT_TF, shape=[None], name='sts_label')
+                elif self.sts_loss_type.lower() == 'xent':
+                    self.sts_label = tf.placeholder(self.INT_TF, shape=[None], name='sts_label')
+                else:
+                    raise ValueError('Unrecognized sts_loss_type "%s".' % self.sts_loss_type)
 
     def _initialize_dense_module(
             self,
@@ -762,6 +767,11 @@ class SynSemNet(object):
         with self.sess.as_default():
             # Define some new tensors for semantic predictions from both syntactic and semantic encoders.
             # STS decoder (sem)
+            if self.sts_loss_type.lower() == 'mse':
+                outdim = 1
+            else:
+                outdim = self.n_sts_label
+
             if self.sts_decoder_type.lower() == 'cnn':
                 self.sts_decoder_sem = self._initialize_cnn_module(
                     self.layers_sts_decoder,
@@ -809,15 +819,21 @@ class SynSemNet(object):
                     name='sts_features_sem')
             #self.sts_logits_sem from self.sts_features_sem with 2 denselayer (section 2 fcnn) from Shao 2017
             self.sts_classifier_sem = self._initialize_dense_module(
-                self.layers_sts_classifier,
-                self.units_sts_classifier,
+                self.layers_sts_classifier + 1,
+                self.units_sts_classifier + [outdim],
                 activation=None,
                 activation_inner=self.sts_classifier_activation_inner,
                 resnet_n_layers_inner=self.sts_classifier_resnet_n_layers_inner,
                 name='sts_classifier_sem'
             )
             self.sts_logits_sem = self.sts_classifier_sem(self.sts_features_sem)
-            self.sts_prediction_sem = tf.argmax(self.sts_logits_sem, axis=-1)
+            if self.sts_loss_type.lower() == 'mse':
+                self.sts_logits_sem = tf.squeeze(self.sts_logits_sem, axis=-1)
+                self.sts_prediction_sem = self.sts_logits_sem
+            elif self.sts_loss_type.lower() == 'xent':
+                self.sts_prediction_sem = tf.argmax(self.sts_logits_sem, axis=-1)
+            else:
+                raise ValueError('Unrecognized sts_loss_type "%s".' % self.sts_loss_type)
 
             # STS decoder (syn)
             if self.sts_decoder_type.lower() == 'cnn':
@@ -866,15 +882,21 @@ class SynSemNet(object):
                     axis=1, 
                     name='sts_features_syn')
             self.sts_classifier_syn = self._initialize_dense_module(
-                self.layers_sts_classifier,
-                self.units_sts_classifier,
+                self.layers_sts_classifier + 1,
+                self.units_sts_classifier + [outdim],
                 activation=None,
                 activation_inner=self.sts_classifier_activation_inner,
                 resnet_n_layers_inner=self.sts_classifier_resnet_n_layers_inner,
                 name='sts_classifier_syn'
             )
             self.sts_logits_syn = self.sts_classifier_syn(self.sts_features_syn)
-            self.sts_prediction_syn = tf.argmax(self.sts_logits_syn, axis=-1)
+            if self.sts_loss_type.lower() == 'mse':
+                self.sts_logits_syn = tf.squeeze(self.sts_logits_syn, axis=-1)
+                self.sts_prediction_syn = self.sts_logits_syn
+            elif self.sts_loss_type.lower() == 'xent':
+                self.sts_prediction_syn = tf.argmax(self.sts_logits_syn, axis=-1)
+            else:
+                raise ValueError('Unrecognized sts_loss_type "%s".' % self.sts_loss_type)
 
     def _initialize_parsing_objective(self, well_formedness_loss_scale=False):
         with self.sess.as_default():
@@ -980,10 +1002,18 @@ class SynSemNet(object):
         with self.sess.as_default():
             with self.sess.graph.as_default():
                 if self.sts_loss_scale:
-                    self.sts_loss_sem = tf.losses.sparse_softmax_cross_entropy(
-                        self.sts_label,
-                        self.sts_logits_sem
-                    )
+                    if self.sts_loss_type.lower() == 'mse':
+                        self.sts_loss_sem = tf.losses.mean_squared_error(
+                            self.sts_label,
+                            self.sts_logits_sem
+                        )
+                    elif self.sts_loss_type.lower() == 'xent':
+                        self.sts_loss_sem = tf.losses.sparse_softmax_cross_entropy(
+                            self.sts_label,
+                            self.sts_logits_sem
+                        )
+                    else:
+                        raise ValueError('Unrecognized sts_loss_type "%s".' % self.sts_loss_type)
                 else:
                     self.sts_loss_sem = 0
 
@@ -993,12 +1023,20 @@ class SynSemNet(object):
                 #    )
 
                 if self.sts_adversarial_loss_scale:
-                    self.sts_loss_syn = tf.losses.sparse_softmax_cross_entropy(
-                        self.sts_label,
-                        self.sts_logits_syn
-                    )
+                    if self.sts_loss_type.lower() == 'mse':
+                        self.sts_loss_syn = tf.losses.mean_squared_error(
+                            self.sts_label,
+                            self.sts_logits_syn
+                        )
+                    elif self.sts_loss_type.lower() == 'xent':
+                        self.sts_loss_syn = tf.losses.sparse_softmax_cross_entropy(
+                            self.sts_label,
+                            self.sts_logits_syn
+                        )
+                    else:
+                        raise ValueError('Unrecognized sts_loss_type "%s".' % self.sts_loss_type)
                 else:
-                    self.sts_loss_sy = 0
+                    self.sts_loss_syn = 0
 
                 #self.sts_loss_syn = tf.losses.mean_squared_error(
                 #    self.sts_label,
@@ -1461,6 +1499,7 @@ class SynSemNet(object):
                 data_name,
                 parsing=True,
                 sts=True,
+                integer_sts_targets=self.sts_loss_type.lower() == 'xent',
                 minibatch_size=minibatch_size,
                 randomize=randomize
             )
@@ -1533,6 +1572,7 @@ class SynSemNet(object):
 
                 data_feed = data.get_sts_data_feed(
                     data_name,
+                    integer_targets=self.sts_loss_type.lower() == 'xent',
                     minibatch_size=minibatch_size,
                     randomize=randomize
                 )
@@ -1815,28 +1855,28 @@ class SynSemNet(object):
                 v = parseval[k]
             else:
                 v = 0.
-            out += ' ' * (indent + 2) + 'Brac F: %.4f\n' % v
+            out += ' ' * (indent + 2) + 'Brac F:   %.4f\n' % v
 
             k = 'p_' + e
             if k in parseval:
                 v = parseval[k]
             else:
                 v = 0.
-            out += ' ' * (indent + 2) + 'Brac P: %.4f\n' % v
+            out += ' ' * (indent + 2) + 'Brac P:   %.4f\n' % v
 
             k = 'r_' + e
             if k in parseval:
                 v = parseval[k]
             else:
                 v = 0.
-            out += ' ' * (indent + 2) + 'Brac R: %.4f\n' % v
+            out += ' ' * (indent + 2) + 'Brac R:   %.4f\n' % v
 
             k = 'tag_' + e
             if k in parseval:
                 v = parseval[k]
             else:
                 v = 0.
-            out += ' ' * (indent + 2) + 'Tag Acc: %.4f\n' % v
+            out += ' ' * (indent + 2) + 'Tag Acc:  %.4f\n' % v
 
         return out
 

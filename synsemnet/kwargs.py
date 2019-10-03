@@ -485,7 +485,7 @@ SYN_SEM_NET_KWARGS = [
         'n_units_sts_classifier',
         300,
         [int, str, None],
-        "Number of units to use in STS classifier layers. Can be an ``int``, which will be used for all layers, a ``str`` with **sts_n_layers_classifier** - 1 space-delimited integers, one for each layer in order from top to bottom. ``None`` is not permitted and will raise an error -- it exists here simply to force users to specify a value.",
+        "Number of units to use in hidden STS classifier layers. Can be an ``int``, which will be used for all layers, a ``str`` with **sts_n_layers_classifier** space-delimited integers, one for each layer in order from top to bottom, or ``None``, in which case a linear classifier (no hidden layers) will be used.",
         aliases=['n_units_decoder']
     ),
     Kwarg(
@@ -536,6 +536,12 @@ SYN_SEM_NET_KWARGS = [
         None,
         [float, None],
         "Weight on well-formedness losses to encourage well-formed trees."
+    ),
+    Kwarg(
+        'sts_loss_type',
+        'xent',
+        str,
+        "Type of loss to use for STS. One of ``['continuous', 'categorical']``."
     ),
 
     # Numeric settings

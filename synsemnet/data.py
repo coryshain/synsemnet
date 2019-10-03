@@ -51,7 +51,7 @@ def get_parse_ancestor_set(parse_labels):
 def get_sts_label_set(sts_labels):
     sts_label_set = set()
     for label in sts_labels:
-        sts_label_set.add(label)
+        sts_label_set.add(int(round(label)))
     return sorted(list(sts_label_set))
 
 
@@ -169,7 +169,7 @@ def read_sts_file(path):
             #_, _, _, _, label, s1, s2 = line.split("\t") #"sts-dev.tsv" has 7 fields- genre,subgenre,year,uid,score,s1,s2
             fields = line.strip().split("\t") # sometimes has 8th and 9th fields for source?
             label, s1, s2 = fields[4:7]
-            label = int(round(float(label)))
+            label = float(label)
             sts_s1_text.append(s1)
             sts_s2_text.append(s2)
             sts_label.append(label)
@@ -297,10 +297,13 @@ class Dataset(object):
     def initialize_sts_file(self, path, name):
         sts_s1_text, sts_s2_text, sts_label = read_sts_file(path)
 
+        sts_label_int = [int(round(x)) for x in sts_label]
+
         new = {
             'sts_s1_text_src': sts_s1_text,
             'sts_s2_text_src': sts_s2_text,
-            'sts_label_src': sts_label
+            'sts_label_src': sts_label,
+            'sts_label_int_src': sts_label_int
         }
 
         if name in self.files:
@@ -335,7 +338,8 @@ class Dataset(object):
                 return_mask=True
                 )
 
-        self.files[name]['sts_label'] = np.fromiter(map(lambda x: int(round(float(x))), self.files[name]['sts_label_src']), dtype=int)
+        self.files[name]['sts_label'] = np.array(self.files[name]['sts_label_src'], dtype=float)
+        self.files[name]['sts_label_int'] = np.array(self.files[name]['sts_label_int_src'], dtype=int)
 
     def get_seqs(self, name='train', data_type='parsing_text_src', as_words=True):
         #pdb.set_trace()
@@ -462,9 +466,9 @@ class Dataset(object):
                 f = lambda x: x.split('_')[-1]
             else:
                 f = self.parse_ancestor_to_int
-        elif data_type.lower() == 'sts_label':
+        elif data_type.lower() in ['sts_label', 'sts_label_int']:
             as_words = True
-            f = lambda x: int(round(float(x)))
+            f = lambda x: x
         else:
             raise ValueError('Unrecognized data_type "%s".' % data_type)
         #print("calling get_seqs with args name, data_type, as_words: {} {} {}".format(name, data_type_tmp, as_words))
@@ -527,9 +531,8 @@ class Dataset(object):
                 f = self.ints_to_parse_joint_depth_on_all
             else:
                 f = self.ints_to_parse_joint
-        elif data_type.lower() == 'sts_label':
-            # TODO: For Evan
-            f = lambda x: int(round(float(x)))
+        elif data_type.lower() in ['sts_label', 'sts_label_int']:
+            f = lambda x: str(x)
         else:
             raise ValueError('Unrecognized data_type "%s".' % data_type)
 
@@ -600,6 +603,7 @@ class Dataset(object):
     def get_sts_data_feed(
             self,
             name,
+            integer_targets=False,
             minibatch_size=128,
             randomize=False
     ):
@@ -607,7 +611,10 @@ class Dataset(object):
         s1_text_mask = self.files[name]['sts_s1_text_mask']
         s2_text = self.files[name]['sts_s2_text']
         s2_text_mask = self.files[name]['sts_s2_text_mask']
-        sts_label = self.files[name]['sts_label']
+        if integer_targets:
+            sts_label = self.files[name]['sts_label_int']
+        else:
+            sts_label = self.files[name]['sts_label']
 
         n = self.get_n(name, task='sts')
 
@@ -637,6 +644,7 @@ class Dataset(object):
             name,
             parsing=True,
             sts=True,
+            integer_sts_targets=False,
             minibatch_size=128,
             randomize=False
     ):
@@ -662,7 +670,10 @@ class Dataset(object):
             sts_s1_text_mask = self.files[name]['sts_s1_text_mask']
             sts_s2_text = self.files[name]['sts_s2_text']
             sts_s2_text_mask = self.files[name]['sts_s2_text_mask']
-            sts_label = self.files[name]['sts_label']
+            if integer_sts_targets:
+                sts_label = self.files[name]['sts_label_int']
+            else:
+                sts_label = self.files[name]['sts_label']
             n_s = self.get_n(name, task='sts')
         else:
             sts_s1_text = None
@@ -891,8 +902,16 @@ class Dataset(object):
         for i in range(len(s1)):
             out += 'S1: ' + ''.join(s1[i]) + '\n'
             out += 'S2: ' + ''.join(s2[i]) + '\n'
-            out += 'True: %d\n' % sts_true[i]
-            out += 'Pred: %d\n\n' % sts_pred[i]
+            t = sts_true[i]
+            p = sts_pred[i]
+            if isinstance(t, int):
+                out += 'True: %d\n' % sts_true[i]
+            else:
+                out += 'True: %.4f\n' % sts_true[i]
+            if isinstance(p, int):
+                out += 'Pred: %.d\n\n' % sts_pred[i]
+            else:
+                out += 'Pred: %.4f\n\n' % sts_pred[i]
 
         return out
 
