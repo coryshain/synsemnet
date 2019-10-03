@@ -334,7 +334,7 @@ SYN_SEM_NET_KWARGS = [
         'n_units_encoder',
         None,
         [int, str, None],
-        "Number of units to use in non-final encoder layers. Can be an ``int``, which will be used for all layers, a ``str`` with **n_layers_encoder** - 1 space-delimited integers, one for each layer in order from bottom to top. ``None`` is not permitted and will raise an error -- it exists here simply to force users to specify a value."
+        "Number of units to use in non-final encoder layers. Can be an ``int``, which will be used for all layers, a ``str`` with **n_layers_encoder** space-delimited integers, one for each layer in order from bottom to top. ``None`` is not permitted and will raise an error -- it exists here simply to force users to specify a value."
     ),
     Kwarg(
         'encoder_activation',
@@ -361,49 +361,73 @@ SYN_SEM_NET_KWARGS = [
         "Implement internal encoder layers as residual layers with **encoder_resnet_n_layers_inner** internal layers each. If ``None``, do not use residual layers.",
         aliases=['resnet_n_layers_inner']
     ),
-
-    # Parsing decoder settings
     Kwarg(
-        'n_layers_parsing_decoder',
+        'sentence_aggregation',
+        'final',
+        str,
+        "Aggregation method for computing a sentence encoding from the word encoding matrix. One of ``['average', 'max_pooling', 'final']``.",
+        aliases=['resnet_n_layers_inner']
+    ),
+
+    # Parsing classifier settings
+    Kwarg(
+        'n_layers_parsing_classifier',
         None,
         [int, None],
-        "Number of layers to use for parsing decoder. If ``None``, inferred from length of **parsing_n_units_decoder**.",
+        "Number of layers to use for parsing MLP classifier. If ``None``, inferred from length of **n_units_parsing_classifier**.",
         aliases=['n_layers_decoder']
     ),
     Kwarg(
-        'n_units_parsing_decoder',
+        'n_units_parsing_classifier',
         None,
         [int, str, None],
-        "Number of units to use in parsing decoder layers. Can be an ``int``, which will be used for all layers, a ``str`` with **parsing_n_layers_decoder** - 1 space-delimited integers, one for each layer in order from top to bottom. ``None`` is not permitted and will raise an error -- it exists here simply to force users to specify a value.",
+        "Number of units to use in parsing classifier layers. Can be an ``int``, which will be used for all layers, a ``str`` with **n_layers_parsing_classifier** space-delimited integers, one for each layer in order from top to bottom, or ``None``, in which case a linear classifier (no hidden layers) will be used.",
         aliases=['n_units_decoder']
     ),
     Kwarg(
-        'parsing_decoder_activation',
-        None,
-        [str, None],
-        "Name of activation to use at the output of the parsing decoder.",
-    ),
-    Kwarg(
-        'parsing_decoder_recurrent_activation',
-        'sigmoid',
-        [str, None],
-        "Name of activation to use for parsing decoder recurrent gates. Ignored unless parsing decoder is recurrent.",
-    ),
-    Kwarg(
-        'parsing_decoder_activation_inner',
+        'parsing_classifier_activation_inner',
         'tanh',
         [str, None],
         "Name of activation to use for prefinal layers in the parsing decoder.",
     ),
     Kwarg(
-        'parsing_decoder_resnet_n_layers_inner',
+        'parsing_classifier_resnet_n_layers_inner',
         None,
         [int, None],
-        "Implement internal parsing decoder layers as residual layers with **parsing_decoder_resnet_n_layers_inner** internal layers each. If ``None``, do not use residual layers.",
+        "Implement internal parsing decoder layers as residual layers with **parsing_classifier_resnet_n_layers_inner** internal layers each. If ``None``, do not use residual layers.",
         aliases=['resnet_n_layers_inner']
     ),
 
-    # STS decoder settings
+    # WP classifier settings
+    Kwarg(
+        'n_layers_wp_classifier',
+        None,
+        [int, None],
+        "Number of layers to use for WP classifier. If ``None``, inferred from length of **n_units_wp_classifier**.",
+        aliases=['n_layers_decoder']
+    ),
+    Kwarg(
+        'n_units_wp_classifier',
+        300,
+        [int, str, None],
+        "Number of units to use in hidden WP classifier layers. Can be an ``int``, which will be used for all layers, a ``str`` with **n_layers_wp_classifier** space-delimited integers, one for each layer in order from top to bottom, or ``None``, in which case a linear classifier (no hidden layers) will be used.",
+        aliases=['n_units_decoder']
+    ),
+    Kwarg(
+        'wp_classifier_activation_inner',
+        'tanh',
+        [str, None],
+        "Name of activation to use for prefinal layers in the WP classifier.",
+    ),
+    Kwarg(
+        'wp_classifier_resnet_n_layers_inner',
+        None,
+        [int, None],
+        "Implement internal WP classifier layers as residual layers with **wp_classifier_resnet_n_layers_inner** internal layers each. If ``None``, do not use residual layers.",
+        aliases=['resnet_n_layers_inner']
+    ),
+
+    # STS decoder/classifier settings
     Kwarg(
         'sts_decoder_type',
         'cnn',
@@ -414,14 +438,14 @@ SYN_SEM_NET_KWARGS = [
         'n_layers_sts_decoder',
         None,
         [int, None],
-        "Number of layers to use for STS decoder. If ``None``, inferred from length of **sts_n_units_decoder**.",
+        "Number of layers to use for STS decoder. If ``None``, inferred from length of **n_units_sts_decoder**.",
         aliases=['n_layers_decoder']
     ),
     Kwarg(
         'n_units_sts_decoder',
         300,
         [int, str, None],
-        "Number of units to use in STS decoder layers. Can be an ``int``, which will be used for all layers, a ``str`` with **sts_n_layers_decoder**  space-delimited integers, one for each layer in order from top to bottom. ``None`` is not permitted and will raise an error -- it exists here simply to force users to specify a value.",
+        "Number of units to use in STS decoder layers. Can be an ``int``, which will be used for all layers, or a ``str`` with **n_layers_sts_decoder**  space-delimited integers, one for each layer in order from top to bottom. ``None`` is not permitted and will raise an error -- it exists here simply to force users to specify a value.",
         aliases=['n_units_decoder']
     ),
     Kwarg(
@@ -478,14 +502,14 @@ SYN_SEM_NET_KWARGS = [
         'n_layers_sts_classifier',
         None,
         [int, None],
-        "Number of layers to use for STS classifier. If ``None``, inferred from length of **sts_n_units_classifier**.",
+        "Number of layers to use for STS classifier. If ``None``, inferred from length of **n_units_sts_classifier**.",
         aliases=['n_layers_decoder']
     ),
     Kwarg(
         'n_units_sts_classifier',
         300,
         [int, str, None],
-        "Number of units to use in hidden STS classifier layers. Can be an ``int``, which will be used for all layers, a ``str`` with **sts_n_layers_classifier** space-delimited integers, one for each layer in order from top to bottom, or ``None``, in which case a linear classifier (no hidden layers) will be used.",
+        "Number of units to use in hidden STS classifier layers. Can be an ``int``, which will be used for all layers, a ``str`` with **n_layers_sts_classifier** space-delimited integers, one for each layer in order from top to bottom, or ``None``, in which case a linear classifier (no hidden layers) will be used.",
         aliases=['n_units_decoder']
     ),
     Kwarg(
@@ -499,6 +523,35 @@ SYN_SEM_NET_KWARGS = [
         None,
         [int, None],
         "Implement internal STS classifier layers as residual layers with **sts_classifier_resnet_n_layers_inner** internal layers each. If ``None``, do not use residual layers.",
+        aliases=['resnet_n_layers_inner']
+    ),
+
+    # BOW classifier settings
+    Kwarg(
+        'n_layers_bow_classifier',
+        None,
+        [int, None],
+        "Number of layers to use for BOW classifier. If ``None``, inferred from length of **n_units_bow_classifier**.",
+        aliases=['n_layers_decoder']
+    ),
+    Kwarg(
+        'n_units_bow_classifier',
+        300,
+        [int, str, None],
+        "Number of units to use in hidden BOW classifier layers. Can be an ``int``, which will be used for all layers, a ``str`` with **n_layers_bow_classifier** space-delimited integers, one for each layer in order from top to bottom, or ``None``, in which case a linear classifier (no hidden layers) will be used.",
+        aliases=['n_units_decoder']
+    ),
+    Kwarg(
+        'bow_classifier_activation_inner',
+        'tanh',
+        [str, None],
+        "Name of activation to use for prefinal layers in the BOW classifier.",
+    ),
+    Kwarg(
+        'bow_classifier_resnet_n_layers_inner',
+        None,
+        [int, None],
+        "Implement internal BOW classifier layers as residual layers with **bow_classifier_resnet_n_layers_inner** internal layers each. If ``None``, do not use residual layers.",
         aliases=['resnet_n_layers_inner']
     ),
 
@@ -518,10 +571,24 @@ SYN_SEM_NET_KWARGS = [
         aliases=['adversarial_loss_scale']
     ),
     Kwarg(
-        'sts_loss_scale',
+        'wp_adversarial_loss_scale',
+        1,
+        [float, None],
+        "Weight on adversarial WP loss.",
+        aliases=['adversarial_loss_scale']
+    ),
+    Kwarg(
+        'wp_loss_scale',
         1,
         [float, None],
         "Weight on STS loss.",
+        aliases=['loss_scale']
+    ),
+    Kwarg(
+        'sts_loss_scale',
+        1,
+        [float, None],
+        "Weight on WP loss.",
         aliases=['loss_scale']
     ),
     Kwarg(
@@ -530,6 +597,20 @@ SYN_SEM_NET_KWARGS = [
         [float, None],
         "Weight on adversarial STS loss.",
         aliases=['adversarial_loss_scale']
+    ),
+    Kwarg(
+        'bow_adversarial_loss_scale',
+        1,
+        [float, None],
+        "Weight on adversarial BOW loss.",
+        aliases=['adversarial_loss_scale']
+    ),
+    Kwarg(
+        'bow_loss_scale',
+        1,
+        [float, None],
+        "Weight on STS loss.",
+        aliases=['loss_scale']
     ),
     Kwarg(
         'well_formedness_loss_scale',

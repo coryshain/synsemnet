@@ -311,6 +311,8 @@ class Dataset(object):
         else:
             self.files[name] = new
 
+    # TODO: Evan, add sents_to_bow(self, ...) method for computing BOW targets from sentences
+
     def cache_numeric_parsing_data(self, name='train', factor_parse_labels=True):
         self.files[name]['parsing_text'], self.files[name]['parsing_text_mask'] = self.symbols_to_padded_seqs(
             name=name,
@@ -324,6 +326,9 @@ class Dataset(object):
         else:
             self.files[name]['parse_depth'] = None
             self.files[name]['parse_label'] = self.symbols_to_padded_seqs(name=name, data_type='parse_label')
+
+        # TODO: Evan, call sents_to_bow on self.files[name]['parsing_text_src'] and add output to self.files[name]
+        # under key 'parse_bow'
 
     def cache_numeric_sts_data(self, name='train', factor_parse_labels=True):
         self.files[name]['sts_s1_text'], self.files[name]['sts_s1_text_mask'] = self.symbols_to_padded_seqs(
@@ -340,6 +345,9 @@ class Dataset(object):
 
         self.files[name]['sts_label'] = np.array(self.files[name]['sts_label_src'], dtype=float)
         self.files[name]['sts_label_int'] = np.array(self.files[name]['sts_label_int_src'], dtype=int)
+
+        # TODO: Evan, call sents_to_bow on self.files[name]['sts_s{1,2}_text_src'] and add outputs to self.files[name]
+        # under key 'sts_s{1,2}_bow'
 
     def get_seqs(self, name='train', data_type='parsing_text_src', as_words=True):
         #pdb.set_trace()
@@ -576,6 +584,8 @@ class Dataset(object):
         parse_label = self.files[name]['parse_label']
         parse_depth = self.files[name]['parse_depth']
 
+        # TODO: Evan, update this to additionally retrieve parsing BOW targets and yield them in batches
+
         n = self.get_n(name, task='parsing')
 
         i = 0
@@ -615,6 +625,8 @@ class Dataset(object):
             sts_label = self.files[name]['sts_label_int']
         else:
             sts_label = self.files[name]['sts_label']
+
+        # TODO: Evan, update this to additionally retrieve STS BOW targets and yield them in batches
 
         n = self.get_n(name, task='sts')
 
@@ -682,6 +694,8 @@ class Dataset(object):
             sts_s2_text_mask = None
             sts_label = None
             n_s = 0
+
+        # TODO: Evan, update this to additionally retrieve parsing and STS BOW targets and yield them in batches
 
         ix_p = None
         ix_s = None
