@@ -375,27 +375,28 @@ SYN_SEM_NET_KWARGS = [
         None,
         [int, None],
         "Number of layers to use for parsing MLP classifier. If ``None``, inferred from length of **n_units_parsing_classifier**.",
-        aliases=['n_layers_decoder']
+        aliases=['n_layers_classifier']
     ),
     Kwarg(
         'n_units_parsing_classifier',
         None,
         [int, str, None],
         "Number of units to use in parsing classifier layers. Can be an ``int``, which will be used for all layers, a ``str`` with **n_layers_parsing_classifier** space-delimited integers, one for each layer in order from top to bottom, or ``None``, in which case a linear classifier (no hidden layers) will be used.",
-        aliases=['n_units_decoder']
+        aliases=['n_units_classifier']
     ),
     Kwarg(
         'parsing_classifier_activation_inner',
         'tanh',
         [str, None],
         "Name of activation to use for prefinal layers in the parsing decoder.",
+        aliases=['classifier_activation_inner']
     ),
     Kwarg(
         'parsing_classifier_resnet_n_layers_inner',
         None,
         [int, None],
         "Implement internal parsing decoder layers as residual layers with **parsing_classifier_resnet_n_layers_inner** internal layers each. If ``None``, do not use residual layers.",
-        aliases=['resnet_n_layers_inner']
+        aliases=['resnet_n_layers_inner', 'classifier_resnet_n_layers_inner']
     ),
 
     # WP classifier settings
@@ -404,27 +405,28 @@ SYN_SEM_NET_KWARGS = [
         None,
         [int, None],
         "Number of layers to use for WP classifier. If ``None``, inferred from length of **n_units_wp_classifier**.",
-        aliases=['n_layers_decoder']
+        aliases=['n_layers_classifier']
     ),
     Kwarg(
         'n_units_wp_classifier',
         300,
         [int, str, None],
         "Number of units to use in hidden WP classifier layers. Can be an ``int``, which will be used for all layers, a ``str`` with **n_layers_wp_classifier** space-delimited integers, one for each layer in order from top to bottom, or ``None``, in which case a linear classifier (no hidden layers) will be used.",
-        aliases=['n_units_decoder']
+        aliases=['n_units_classifier']
     ),
     Kwarg(
         'wp_classifier_activation_inner',
         'tanh',
         [str, None],
         "Name of activation to use for prefinal layers in the WP classifier.",
+        aliases=['classifier_activation_inner']
     ),
     Kwarg(
         'wp_classifier_resnet_n_layers_inner',
         None,
         [int, None],
         "Implement internal WP classifier layers as residual layers with **wp_classifier_resnet_n_layers_inner** internal layers each. If ``None``, do not use residual layers.",
-        aliases=['resnet_n_layers_inner']
+        aliases=['resnet_n_layers_inner', 'classifier_resnet_n_layers_inner']
     ),
 
     # STS decoder/classifier settings
@@ -503,27 +505,28 @@ SYN_SEM_NET_KWARGS = [
         None,
         [int, None],
         "Number of layers to use for STS classifier. If ``None``, inferred from length of **n_units_sts_classifier**.",
-        aliases=['n_layers_decoder']
+        aliases=['n_layers_classifier']
     ),
     Kwarg(
         'n_units_sts_classifier',
         300,
         [int, str, None],
         "Number of units to use in hidden STS classifier layers. Can be an ``int``, which will be used for all layers, a ``str`` with **n_layers_sts_classifier** space-delimited integers, one for each layer in order from top to bottom, or ``None``, in which case a linear classifier (no hidden layers) will be used.",
-        aliases=['n_units_decoder']
+        aliases=['n_units_classifier']
     ),
     Kwarg(
         'sts_classifier_activation_inner',
         'tanh',
         [str, None],
         "Name of activation to use for prefinal layers in the STS classifier.",
+        aliases=['classifier_activation_inner']
     ),
     Kwarg(
         'sts_classifier_resnet_n_layers_inner',
         None,
         [int, None],
         "Implement internal STS classifier layers as residual layers with **sts_classifier_resnet_n_layers_inner** internal layers each. If ``None``, do not use residual layers.",
-        aliases=['resnet_n_layers_inner']
+        aliases=['resnet_n_layers_inner', 'classifier_resnet_n_layers_inner']
     ),
 
     # BOW classifier settings
@@ -532,27 +535,28 @@ SYN_SEM_NET_KWARGS = [
         None,
         [int, None],
         "Number of layers to use for BOW classifier. If ``None``, inferred from length of **n_units_bow_classifier**.",
-        aliases=['n_layers_decoder']
+        aliases=['n_layers_classifier']
     ),
     Kwarg(
         'n_units_bow_classifier',
         300,
         [int, str, None],
         "Number of units to use in hidden BOW classifier layers. Can be an ``int``, which will be used for all layers, a ``str`` with **n_layers_bow_classifier** space-delimited integers, one for each layer in order from top to bottom, or ``None``, in which case a linear classifier (no hidden layers) will be used.",
-        aliases=['n_units_decoder']
+        aliases=['n_units_classifier']
     ),
     Kwarg(
         'bow_classifier_activation_inner',
         'tanh',
         [str, None],
         "Name of activation to use for prefinal layers in the BOW classifier.",
+        aliases=['classifier_activation_inner']
     ),
     Kwarg(
         'bow_classifier_resnet_n_layers_inner',
         None,
         [int, None],
         "Implement internal BOW classifier layers as residual layers with **bow_classifier_resnet_n_layers_inner** internal layers each. If ``None``, do not use residual layers.",
-        aliases=['resnet_n_layers_inner']
+        aliases=['resnet_n_layers_inner', 'classifier_resnet_n_layers_inner']
     ),
 
     # Loss settings
