@@ -317,6 +317,11 @@ class SynSemNet(object):
                     self.syntactic_character_rnn,
                     character_mask=self.parsing_character_mask
                 )
+                self.parsing_word_embeddings_syn_adversarial = replace_gradient(
+                    tf.identity,
+                    lambda x: -x,
+                    session=self.sess
+                )(self.parsing_word_embeddings_syn)
                 self.parsing_word_encodings_syn = self._initialize_encoding(
                     self.parsing_word_embeddings_syn,
                     self.syntactic_word_encoder,
@@ -343,6 +348,11 @@ class SynSemNet(object):
                     self.semantic_character_rnn,
                     character_mask=self.parsing_character_mask
                 )
+                self.parsing_word_embeddings_sem_adversarial = replace_gradient(
+                    tf.identity,
+                    lambda x: -x,
+                    session=self.sess
+                )(self.parsing_word_embeddings_sem)
                 self.parsing_word_encodings_sem = self._initialize_encoding(
                     self.parsing_word_embeddings_sem,
                     self.semantic_word_encoder,
@@ -370,6 +380,11 @@ class SynSemNet(object):
                     self.syntactic_character_rnn,
                     character_mask=self.sts_s1_character_mask
                 )
+                self.sts_s1_word_embeddings_syn_adversarial = replace_gradient(
+                    tf.identity,
+                    lambda x: -x,
+                    session=self.sess
+                )(self.sts_s1_word_embeddings_syn)
                 self.sts_s1_word_encodings_syn = self._initialize_encoding(
                     self.sts_s1_word_embeddings_syn,
                     self.syntactic_word_encoder,
@@ -396,6 +411,11 @@ class SynSemNet(object):
                     self.semantic_character_rnn,
                     character_mask=self.sts_s1_character_mask
                 )
+                self.sts_s1_word_embeddings_sem_adversarial = replace_gradient(
+                    tf.identity,
+                    lambda x: -x,
+                    session=self.sess
+                )(self.sts_s1_word_embeddings_sem)
                 self.sts_s1_word_encodings_sem = self._initialize_encoding(
                     self.sts_s1_word_embeddings_sem,
                     self.semantic_word_encoder,
@@ -422,6 +442,11 @@ class SynSemNet(object):
                     self.syntactic_character_rnn,
                     character_mask=self.sts_s2_character_mask
                 )
+                self.sts_s2_word_embeddings_syn_adversarial = replace_gradient(
+                    tf.identity,
+                    lambda x: -x,
+                    session=self.sess
+                )(self.sts_s2_word_embeddings_syn)
                 self.sts_s2_word_encodings_syn = self._initialize_encoding(
                     self.sts_s2_word_embeddings_syn,
                     self.syntactic_word_encoder,
@@ -448,6 +473,11 @@ class SynSemNet(object):
                     self.semantic_character_rnn,
                     character_mask=self.sts_s2_character_mask
                 )
+                self.sts_s2_word_embeddings_sem_adversarial = replace_gradient(
+                    tf.identity,
+                    lambda x: -x,
+                    session=self.sess
+                )(self.sts_s2_word_embeddings_sem)
                 self.sts_s2_word_encodings_sem = self._initialize_encoding(
                     self.sts_s2_word_embeddings_sem,
                     self.semantic_word_encoder,
@@ -494,7 +524,39 @@ class SynSemNet(object):
                 self.parse_depth_prediction_sem = parsing_sem['parse_depth_prediction']
 
                 # WP outputs
-                # TODO: Cory
+                self.wp_classifier_syn = self._initialize_wp_classifier(name='wp_syn')
+                self.wp_parsing_syn = self._initialize_wp_outputs(
+                    self.wp_classifier_syn,
+                    self.parsing_word_embeddings_syn,
+                    self.parsing_sent_encoding_syn
+                )
+                self.wp_sts_s1_syn = self._initialize_wp_outputs(
+                    self.wp_classifier_syn,
+                    self.sts_s1_word_embeddings_syn,
+                    self.sts_s1_sent_encoding_syn
+                )
+                self.wp_sts_s2_syn = self._initialize_wp_outputs(
+                    self.wp_classifier_syn,
+                    self.sts_s2_word_embeddings_syn,
+                    self.sts_s2_sent_encoding_syn
+                )
+
+                self.wp_classifier_sem = self._initialize_wp_classifier(name='wp_sem')
+                self.wp_parsing_sem = self._initialize_wp_outputs(
+                    self.wp_classifier_sem,
+                    self.parsing_word_embeddings_sem_adversarial,
+                    self.parsing_sent_encoding_sem_adversarial
+                )
+                self.wp_sts_s1_sem = self._initialize_wp_outputs(
+                    self.wp_classifier_sem,
+                    self.sts_s1_word_embeddings_sem_adversarial,
+                    self.sts_s1_sent_encoding_sem_adversarial
+                )
+                self.wp_sts_s2_sem = self._initialize_wp_outputs(
+                    self.wp_classifier_sem,
+                    self.sts_s2_word_embeddings_sem_adversarial,
+                    self.sts_s2_sent_encoding_sem_adversarial
+                )
 
                 # STS outputs
                 sts_syn = self._initialize_sts_outputs(
@@ -538,9 +600,9 @@ class SynSemNet(object):
                     self.pos_label_logit_syn,
                     self.parse_label_logit_syn,
                     self.parse_depth_logit_syn,
-                    scale=self.parsing_loss_scale,
                     weights=self.parsing_word_mask,
-                    well_formedness_loss_scale=self.well_formedness_loss_scale
+                    well_formedness_loss_scale=self.well_formedness_loss_scale,
+                    nonzero_scale=self.parsing_loss_scale
                 )
                 self.parsing_loss_syn = parsing_losses_syn['loss']
                 self.pos_label_loss_syn = parsing_losses_syn['pos_label_loss']
@@ -553,9 +615,9 @@ class SynSemNet(object):
                     self.pos_label_logit_sem,
                     self.parse_label_logit_sem,
                     self.parse_depth_logit_sem,
-                    scale=self.parsing_adversarial_loss_scale,
                     weights=self.parsing_word_mask,
-                    well_formedness_loss_scale=self.well_formedness_loss_scale
+                    well_formedness_loss_scale=self.well_formedness_loss_scale,
+                    nonzero_scale=self.parsing_adversarial_loss_scale
                 )
                 self.parsing_loss_sem = parsing_losses_sem['loss']
                 self.pos_label_loss_sem = parsing_losses_sem['pos_label_loss']
@@ -565,20 +627,50 @@ class SynSemNet(object):
                 self.no_neg_loss_sem = parsing_losses_sem['no_neg_loss']
 
                 # WP losses
-                # TODO: Cory
-                self.wp_loss_syn = 0.
-                self.wp_loss_sem = 0.
+                self.wp_loss_parsing_syn = self._initialize_wp_objective(
+                    self.wp_parsing_syn,
+                    weights=self.parsing_word_mask,
+                    nonzero_scale=self.wp_loss_scale
+                )['loss']
+                self.wp_loss_sts_s1_syn = self._initialize_wp_objective(
+                    self.wp_sts_s1_syn,
+                    weights=self.parsing_word_mask,
+                    nonzero_scale=self.wp_loss_scale
+                )['loss']
+                self.wp_loss_sts_s2_syn = self._initialize_wp_objective(
+                    self.wp_sts_s2_syn,
+                    weights=self.parsing_word_mask,
+                    nonzero_scale=self.wp_loss_scale
+                )['loss']
+                self.wp_loss_syn = self.wp_loss_parsing_syn + self.wp_loss_sts_s1_syn + self.wp_loss_sts_s2_syn
+
+                self.wp_loss_parsing_sem = self._initialize_wp_objective(
+                    self.wp_parsing_sem,
+                    weights=self.parsing_word_mask,
+                    nonzero_scale=self.wp_adversarial_loss_scale
+                )['loss']
+                self.wp_loss_sts_s1_sem = self._initialize_wp_objective(
+                    self.wp_sts_s1_sem,
+                    weights=self.parsing_word_mask,
+                    nonzero_scale=self.wp_adversarial_loss_scale
+                )['loss']
+                self.wp_loss_sts_s2_sem = self._initialize_wp_objective(
+                    self.wp_sts_s2_sem,
+                    weights=self.parsing_word_mask,
+                    nonzero_scale=self.wp_adversarial_loss_scale
+                )['loss']
+                self.wp_loss_sem = self.wp_loss_parsing_sem + self.wp_loss_sts_s1_sem + self.wp_loss_sts_s2_sem
 
                 # STS losses
                 sts_loss_syn = self._initialize_sts_objective(
                     self.sts_logit_syn,
-                    scale=self.sts_adversarial_loss_scale
+                    nonzero_scale=self.sts_adversarial_loss_scale
                 )
                 self.sts_loss_syn = sts_loss_syn['loss']
                 
                 sts_loss_sem = self._initialize_sts_objective(
                     self.sts_logit_sem,
-                    scale=self.sts_loss_scale
+                    nonzero_scale=self.sts_loss_scale
                 )
                 self.sts_loss_sem = sts_loss_sem['loss']
 
@@ -595,14 +687,14 @@ class SynSemNet(object):
                 self.bow_loss_syn = 0.
                 self.bow_loss_sem = 0.
 
-                self.loss = self.parsing_loss_syn + \
-                            self.wp_loss_syn + \
-                            self.sts_loss_sem + \
-                            self.bow_loss_sem
-                self.adversarial_loss = self.parsing_loss_sem + \
-                                        self.wp_loss_sem + \
-                                        self.sts_loss_syn + \
-                                        self.bow_loss_syn
+                self.loss = self.parsing_loss_syn * self.parsing_loss_scale + \
+                            self.wp_loss_syn * self.wp_loss_scale + \
+                            self.sts_loss_sem * self.sts_loss_scale + \
+                            self.bow_loss_sem * self.bow_loss_scale
+                self.adversarial_loss = self.parsing_loss_sem * self.parsing_adversarial_loss_scale + \
+                                        self.wp_loss_sem * self.wp_adversarial_loss_scale + \
+                                        self.sts_loss_syn * self.sts_adversarial_loss_scale + \
+                                        self.bow_loss_syn * self.bow_adversarial_loss_scale
                 
                 self.total_loss = self.loss + self.adversarial_loss
 
@@ -1031,6 +1123,39 @@ class SynSemNet(object):
 
                 return out
 
+    def _initialize_wp_classifier(self, name=None):
+        with self.sess.as_default():
+            with self.sess.graph.as_default():
+                if name is None:
+                    name = 'wp'
+
+                units = self.wp_n_pos
+
+                wp_classifier = self._initialize_dense_module(
+                    self.layers_wp_classifier + 1,
+                    self.units_wp_classifier + [units],
+                    activation=None,
+                    activation_inner=self.wp_classifier_activation_inner,
+                    resnet_n_layers_inner=self.wp_classifier_resnet_n_layers_inner,
+                    name=name + '_classifier'
+                )
+
+                return wp_classifier
+
+    def _initialize_wp_outputs(self, classifier, word_embeddings, sent_encoding):
+        with self.sess.as_default():
+            with self.sess.graph.as_default():
+                tile_ix = [1] * (len(sent_encoding.shape) - 1) + [self.wp_n_pos] + [1]
+                sent_encoding = tf.tile(
+                    tf.expand_dims(sent_encoding, -2),
+                    tile_ix
+                )
+                classifier_in = tf.concat([word_embeddings[..., -self.wp_n_pos:, :], sent_encoding], axis=-1)
+                
+                out = classifier(classifier_in)
+                
+                return out
+
     def _initialize_sts_outputs(self, s1, s2, name=None):
         with self.sess.as_default():
             # Define some new tensors for STS prediction from encodings.
@@ -1130,11 +1255,11 @@ class SynSemNet(object):
             pos_label=None,
             parse_label=None,
             parse_depth=None,
-            scale=None,
             weights=None,
-            well_formedness_loss_scale=False
+            well_formedness_loss_scale=False,
+            nonzero_scale=True
     ):
-        if scale:
+        if nonzero_scale:
             with self.sess.as_default():
                 with self.sess.graph.as_default():
                     if pos_label is None:
@@ -1199,7 +1324,7 @@ class SynSemNet(object):
                         zero_sum_loss = 0
                         no_neg_loss = 0
 
-                    loss *= scale
+                    loss *= nonzero_scale
         else:
             loss = 0
             pos_label_loss = 0
@@ -1219,10 +1344,37 @@ class SynSemNet(object):
 
         return out
 
-    def _initialize_sts_objective(self, logit, scale=None, label=None):
+    def _initialize_wp_objective(
+            self,
+            logit,
+            weights=None,
+            nonzero_scale=True
+    ):
         with self.sess.as_default():
             with self.sess.graph.as_default():
-                if scale:
+                if nonzero_scale:
+                    label = tf.range(self.wp_n_pos, dtype=self.INT_TF)[None, ...]
+                    if weights is not None:
+                        start_ix = tf.cast(tf.reduce_sum(1 - weights, axis=-1, keepdims=True), dtype=self.INT_TF)
+                        label = tf.maximum(0, label - start_ix)
+
+                        loss = tf.losses.sparse_softmax_cross_entropy(
+                            label,
+                            logit
+                        )
+                else:
+                    loss = 0.
+
+                out = {
+                    'loss': loss
+                }
+
+                return out
+
+    def _initialize_sts_objective(self, logit, label=None, nonzero_scale=None):
+        with self.sess.as_default():
+            with self.sess.graph.as_default():
+                if nonzero_scale:
                     if label is None:
                         label = self.sts_label
                     if self.sts_loss_type.lower() == 'mse':
@@ -1238,7 +1390,7 @@ class SynSemNet(object):
                     else:
                         raise ValueError('Unrecognized sts_loss_type "%s".' % self.sts_loss_type)
                 else:
-                    loss = 0
+                    loss = 0.
 
                 out = {
                     'loss': loss

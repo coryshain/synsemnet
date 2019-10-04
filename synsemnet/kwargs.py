@@ -291,6 +291,12 @@ SYN_SEM_NET_KWARGS = [
         bool,
         "Whether to factor parse labels into their (numeric) depth and (categorical) ancestor components and predict each separately. If ``False``, depth and category information is merged and treated as atomic.",
     ),
+    Kwarg(
+        'wp_n_pos',
+        50,
+        int,
+        "Number of classes (position indices) to use for word position loss. Only the final **wp_n_pos** words of each sentence will be used to compute the WP loss.",
+    ),
 
     # MODEL SETTINGS
     # Encoder settings
