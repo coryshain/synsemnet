@@ -334,7 +334,7 @@ class SynSemNet(object):
                                 if adv:
                                     val = replace_gradient(
                                         tf.identity,
-                                        lambda x: -x,
+                                        lambda x: -x * self.adversarial_gradient_scale,
                                         session=self.sess
                                     )(getattr(self, name_base))
                                 else:
@@ -525,8 +525,8 @@ class SynSemNet(object):
                             setattr(self, 'sts_loss_%s' % s, o['loss'])
                         elif task == 'bow':
                             # TODO
-                            self.bow_loss_syn = 0.
-                            self.bow_loss_sem = 0.
+                            self.bow_loss_syn = tf.convert_to_tensor(0.)
+                            self.bow_loss_sem = tf.convert_to_tensor(0.)
                         else:
                             raise ValueError('Unrecognized task "%s".' % task)
 
@@ -560,18 +560,19 @@ class SynSemNet(object):
                 self.training = tf.placeholder_with_default(tf.constant(True, dtype=tf.bool), shape=[], name='training')
                 self.task = tf.placeholder(self.INT_TF, shape=[None], name='task')
 
-                self.char_embedding_matrix_syn = tf.get_variable(
-                    shape=[self.n_char + 1, self.character_embedding_dim],
-                    dtype=self.FLOAT_TF,
-                    initializer=get_initializer('he_normal_initializer', session=self.sess),
-                    name='char_embedding_matrix_syn'
-                )
-                self.char_embedding_matrix_sem = tf.get_variable(
-                    shape=[self.n_char + 1, self.character_embedding_dim],
-                    dtype=self.FLOAT_TF,
-                    initializer=get_initializer('he_normal_initializer', session=self.sess),
-                    name='char_embedding_matrix_sem'
-                )
+                if self.character_embedding_dim:
+                    self.char_embedding_matrix_syn = tf.get_variable(
+                        shape=[self.n_char + 1, self.character_embedding_dim],
+                        dtype=self.FLOAT_TF,
+                        initializer=get_initializer('he_normal_initializer', session=self.sess),
+                        name='char_embedding_matrix_syn'
+                    )
+                    self.char_embedding_matrix_sem = tf.get_variable(
+                        shape=[self.n_char + 1, self.character_embedding_dim],
+                        dtype=self.FLOAT_TF,
+                        initializer=get_initializer('he_normal_initializer', session=self.sess),
+                        name='char_embedding_matrix_sem'
+                    )
 
                 self._initialize_parsing_inputs()
                 self._initialize_sts_inputs()
@@ -600,8 +601,16 @@ class SynSemNet(object):
                 self.parsing_words_one_hot = tf.one_hot(self.parsing_words, self.target_vocab_size)
                 self.parsing_bow_true = tf.reduce_sum(self.parsing_words_one_hot, axis=-2)
                 self.parsing_word_mask = tf.cast(tf.reduce_any(self.parsing_char_mask > 0, axis=-1), dtype=self.FLOAT_TF)
-                self.parsing_char_embeddings_syn = tf.gather(self.char_embedding_matrix_syn, self.parsing_chars)
-                self.parsing_char_embeddings_sem = tf.gather(self.char_embedding_matrix_sem, self.parsing_chars)
+                if self.character_embedding_dim:
+                    self.parsing_char_embeddings_syn = tf.gather(self.char_embedding_matrix_syn, self.parsing_chars)
+                    self.parsing_char_embeddings_sem = tf.gather(self.char_embedding_matrix_sem, self.parsing_chars)
+                else:
+                    self.parsing_char_one_hots = tf.one_hot(
+                        self.parsing_chars,
+                        self.n_char
+                    )
+                    self.parsing_char_embeddings_syn = self.parsing_char_one_hots
+                    self.parsing_char_embeddings_sem = self.parsing_char_one_hots
 
                 self.pos_label = tf.placeholder(self.INT_TF, shape=[None, None], name='pos_label')
 
@@ -618,8 +627,16 @@ class SynSemNet(object):
                 self.sts_s1_words_one_hot = tf.one_hot(self.sts_s1_words, self.target_vocab_size)
                 self.sts_s1_bow_true = tf.reduce_sum(self.sts_s1_words_one_hot, axis=-2)
                 self.sts_s1_word_mask = tf.cast(tf.reduce_any(self.sts_s1_char_mask > 0, axis=-1), dtype=self.FLOAT_TF)
-                self.sts_s1_char_embeddings_syn = tf.gather(self.char_embedding_matrix_syn, self.sts_s1_chars)
-                self.sts_s1_char_embeddings_sem = tf.gather(self.char_embedding_matrix_sem, self.sts_s1_chars)
+                if self.character_embedding_dim:
+                    self.sts_s1_char_embeddings_syn = tf.gather(self.char_embedding_matrix_syn, self.sts_s1_chars)
+                    self.sts_s1_char_embeddings_sem = tf.gather(self.char_embedding_matrix_sem, self.sts_s1_chars)
+                else:
+                    self.sts_s1_char_one_hots = tf.one_hot(
+                        self.sts_s1_chars,
+                        self.n_char
+                    )
+                    self.sts_s1_char_embeddings_syn = self.sts_s1_char_one_hots
+                    self.sts_s1_char_embeddings_sem = self.sts_s1_char_one_hots
 
                 self.sts_s2_chars = tf.placeholder(self.INT_TF, shape=[None, None, None], name='sts_s2_chars')
                 self.sts_s2_char_mask = tf.placeholder(self.FLOAT_TF, shape=[None, None, None], name='sts_s2_char_mask')
@@ -627,8 +644,16 @@ class SynSemNet(object):
                 self.sts_s2_words_one_hot = tf.one_hot(self.sts_s2_words, self.target_vocab_size)
                 self.sts_s2_bow_true = tf.reduce_sum(self.sts_s2_words_one_hot, axis=-2)
                 self.sts_s2_word_mask = tf.cast(tf.reduce_any(self.sts_s2_char_mask > 0, axis=-1), dtype=self.FLOAT_TF)
-                self.sts_s2_char_embeddings_syn = tf.gather(self.char_embedding_matrix_syn, self.sts_s2_chars)
-                self.sts_s2_char_embeddings_sem = tf.gather(self.char_embedding_matrix_sem, self.sts_s2_chars)
+                if self.character_embedding_dim:
+                    self.sts_s2_char_embeddings_syn = tf.gather(self.char_embedding_matrix_syn, self.sts_s2_chars)
+                    self.sts_s2_char_embeddings_sem = tf.gather(self.char_embedding_matrix_sem, self.sts_s2_chars)
+                else:
+                    self.sts_s2_char_one_hots = tf.one_hot(
+                        self.sts_s2_chars,
+                        self.n_char
+                    )
+                    self.sts_s2_char_embeddings_syn = self.sts_s2_char_one_hots
+                    self.sts_s2_char_embeddings_sem = self.sts_s2_char_one_hots
 
                 if self.sts_loss_type.lower() == 'mse':
                     self.sts_label = tf.placeholder(self.FLOAT_TF, shape=[None], name='sts_label')
@@ -708,7 +733,7 @@ class SynSemNet(object):
             return_sequences=True,
             reuse=None,
             passthru=False,
-            name='character_rnn'
+            name='rnn'
     ):
         with self.sess.as_default():
             with self.sess.graph.as_default():
@@ -727,7 +752,7 @@ class SynSemNet(object):
                     else:
                         units_cur = n_units[l]
 
-                    char_encoder_fwd_rnn = RNNLayer(
+                    fwd_rnn = RNNLayer(
                         training=self.training,
                         units=units_cur,
                         kernel_initializer=kernel_initializer,
@@ -740,7 +765,7 @@ class SynSemNet(object):
                     )
 
                     if bidirectional:
-                        char_encoder_bwd_rnn = RNNLayer(
+                        bwd_rnn = RNNLayer(
                             training=self.training,
                             units=units_cur,
                             kernel_initializer=kernel_initializer,
@@ -751,17 +776,17 @@ class SynSemNet(object):
                             name=name + '_bwd_l%d' % l,
                             session=self.sess
                         )
-                        char_encoder_rnn = make_bi_rnn_layer(char_encoder_fwd_rnn, char_encoder_bwd_rnn, session=self.sess)
+                        rnn = make_bi_rnn_layer(fwd_rnn, bwd_rnn, session=self.sess)
                     else:
-                        char_encoder_rnn = char_encoder_fwd_rnn
+                        rnn = fwd_rnn
                     if passthru: # Concat inputs and outputs to allow passthru connections
-                        def char_encoder_rnn(x, layer=char_encoder_rnn, mask=None):
+                        def char_encoder_rnn(x, layer=rnn, mask=None):
                             below = x
                             above = layer(x, mask=mask)
                             out = tf.concat([below, above], axis=-1)
                             return out
 
-                    out.append(make_lambda(char_encoder_rnn, session=self.sess, use_kwargs=True))
+                    out.append(make_lambda(rnn, session=self.sess, use_kwargs=True))
 
                 if project_encodings:
                     if resnet_n_layers_inner:
@@ -1005,8 +1030,8 @@ class SynSemNet(object):
                     projection = self._initialize_dense_module(
                         1,
                         [self.word_emb_dim],
-                        activation=self.wp_decoder_activation,
-                        activation_inner=self.wp_decoder_activation_inner,
+                        activation=None,
+                        activation_inner=self.wp_projection_activation_inner,
                         resnet_n_layers_inner=self.wp_decoder_resnet_n_layers_inner,
                     )
 
@@ -1314,21 +1339,21 @@ class SynSemNet(object):
 
                             loss += (zero_sum_loss + no_neg_loss) * well_formedness_loss_scale
                         else:
-                            zero_sum_loss = 0
-                            no_neg_loss = 0
+                            zero_sum_loss = tf.convert_to_tensor(0.)
+                            no_neg_loss = tf.convert_to_tensor(0.)
                     else:
-                        parse_depth_loss = 0
-                        zero_sum_loss = 0
-                        no_neg_loss = 0
+                        parse_depth_loss = tf.convert_to_tensor(0.)
+                        zero_sum_loss = tf.convert_to_tensor(0.)
+                        no_neg_loss = tf.convert_to_tensor(0.)
 
                     loss *= nonzero_scale
         else:
-            loss = 0
-            pos_label_loss = 0
-            parse_label_loss = 0
-            parse_depth_loss = 0
-            zero_sum_loss = 0
-            no_neg_loss = 0
+            loss = tf.convert_to_tensor(0.)
+            pos_label_loss = tf.convert_to_tensor(0.)
+            parse_label_loss = tf.convert_to_tensor(0.)
+            parse_depth_loss = tf.convert_to_tensor(0.)
+            zero_sum_loss = tf.convert_to_tensor(0.)
+            no_neg_loss = tf.convert_to_tensor(0.)
 
         out = {
             'loss': loss,
@@ -1383,9 +1408,9 @@ class SynSemNet(object):
                         ) * weights
                     ) / tf.maximum(n, self.epsilon)
                 else:
-                    loss = 0.
-                    acc = 0.
-                    n = 0
+                    loss = tf.convert_to_tensor(0.)
+                    acc = tf.convert_to_tensor(0.)
+                    n = tf.convert_to_tensor(0.)
 
                 out = {
                     'loss': loss,
@@ -1414,7 +1439,7 @@ class SynSemNet(object):
                     else:
                         raise ValueError('Unrecognized sts_loss_type "%s".' % self.sts_loss_type)
                 else:
-                    loss = 0.
+                    loss = tf.convert_to_tensor(0.)
 
                 out = {
                     'loss': loss
@@ -2213,52 +2238,28 @@ class SynSemNet(object):
             # Get WP loss tensors and names from syntactic encoder
             tensors += [
                 self.wp_parsing_loss_syn,
-                self.wp_parsing_acc_syn,
-                self.wp_parsing_n_syn,
                 self.wp_sts_s1_loss_syn,
-                self.wp_sts_s1_acc_syn,
-                self.wp_sts_s1_n_syn,
                 self.wp_sts_s2_loss_syn,
-                self.wp_sts_s2_acc_syn,
-                self.wp_sts_s2_n_syn,
                 self.wp_loss_syn
             ]
             tensor_names += [
                 'wp_parsing_loss_syn',
-                'wp_parsing_acc_syn',
-                'wp_parsing_n_syn',
                 'wp_sts_s1_loss_syn',
-                'wp_sts_s1_acc_syn',
-                'wp_sts_s1_n_syn',
                 'wp_sts_s2_loss_syn',
-                'wp_sts_s2_acc_syn',
-                'wp_sts_s2_n_syn',
                 'wp_loss_syn'
             ]
         if sem:
             # Get WP loss tensors and names from semantic encoder
             tensors += [
                 self.wp_parsing_loss_sem,
-                self.wp_parsing_acc_sem,
-                self.wp_parsing_n_sem,
                 self.wp_sts_s1_loss_sem,
-                self.wp_sts_s1_acc_sem,
-                self.wp_sts_s1_n_sem,
                 self.wp_sts_s2_loss_sem,
-                self.wp_sts_s2_acc_sem,
-                self.wp_sts_s2_n_sem,
                 self.wp_loss_syn
             ]
             tensor_names += [
                 'wp_parsing_loss_sem',
-                'wp_parsing_acc_sem',
-                'wp_parsing_n_sem',
                 'wp_sts_s1_loss_sem',
-                'wp_sts_s1_acc_sem',
-                'wp_sts_s1_n_sem',
                 'wp_sts_s2_loss_sem',
-                'wp_sts_s2_acc_sem',
-                'wp_sts_s2_n_sem',
                 'wp_loss_sem'
             ]
 
@@ -2301,26 +2302,18 @@ class SynSemNet(object):
         if syn:
             # Get WP loss tensors and names from syntactic encoder
             tensors += [
-                self.wp_parsing_loss_syn,
-                self.wp_parsing_acc_syn,
-                self.wp_parsing_n_syn
+                self.wp_parsing_loss_syn
             ]
             tensor_names += [
-                'wp_parsing_loss_syn',
-                'wp_parsing_acc_syn',
-                'wp_parsing_n_syn'
+                'wp_parsing_loss_syn'
             ]
         if sem:
             # Get WP loss tensors and names from semantic encoder
             tensors += [
-                self.wp_parsing_loss_sem,
-                self.wp_parsing_acc_sem,
-                self.wp_parsing_n_sem
+                self.wp_parsing_loss_sem
             ]
             tensor_names += [
-                'wp_parsing_loss_sem',
-                'wp_parsing_acc_sem',
-                'wp_parsing_n_sem'
+                'wp_parsing_loss_sem'
             ]
 
         return tensors, tensor_names
@@ -2355,37 +2348,21 @@ class SynSemNet(object):
             # Get WP loss tensors and names from syntactic encoder
             tensors += [
                 self.wp_sts_s1_loss_syn,
-                self.wp_sts_s1_acc_syn,
-                self.wp_sts_s1_n_syn,
-                self.wp_sts_s2_loss_syn,
-                self.wp_sts_s2_acc_syn,
-                self.wp_sts_s2_n_syn
+                self.wp_sts_s2_loss_syn
             ]
             tensor_names += [
                 'wp_sts_s1_loss_syn',
-                'wp_sts_s1_acc_syn',
-                'wp_sts_s1_n_syn',
-                'wp_sts_s2_loss_syn',
-                'wp_sts_s2_acc_syn',
-                'wp_sts_s2_n_syn'
+                'wp_sts_s2_loss_syn'
             ]
         if sem:
             # Get WP loss tensors and names from semantic encoder
             tensors += [
                 self.wp_sts_s1_loss_sem,
-                self.wp_sts_s1_acc_sem,
-                self.wp_sts_s1_n_sem,
-                self.wp_sts_s2_loss_sem,
-                self.wp_sts_s2_acc_sem,
-                self.wp_sts_s2_n_sem
+                self.wp_sts_s2_loss_sem
             ]
             tensor_names += [
                 'wp_sts_s1_loss_sem',
-                'wp_sts_s1_acc_sem',
-                'wp_sts_s1_n_sem',
-                'wp_sts_s2_loss_sem',
-                'wp_sts_s2_acc_sem',
-                'wp_sts_s2_n_sem'
+                'wp_sts_s2_loss_sem'
             ]
 
         return tensors, tensor_names
@@ -2741,23 +2718,19 @@ class SynSemNet(object):
         
                 if verbose:
                     stderr('Evaluating...\n')
+
+                eval_metrics = self.eval_predictions(
+                    data,
+                    info_dict,
+                    gold_tree_path=gold_tree_path,
+                    syn=True,
+                    sem=True,
+                    name=data_name
+                )
         
                 if gold_tree_path is None:
-                    eval_metrics = self.eval_sts_prediction(
-                        info_dict,
-                        syn=True,
-                        sem=True
-                    )
-                    task = ['sts']
+                    task = ['wp', 'sts']
                 else:
-                    eval_metrics = self.eval_prediction(
-                        data,
-                        info_dict,
-                        gold_tree_path,
-                        syn=True,
-                        sem=True,
-                        name=data_name
-                    )
                     task = ['parsing', 'wp', 'sts']
 
                 info_dict.update(eval_metrics)
@@ -2766,7 +2739,7 @@ class SynSemNet(object):
                     self.update_logs(
                         info_dict,
                         name=data_name,
-                        encoder=['syn', 'sem'],
+                        encoder=self.ENCODER_TYPES,
                         task=task,
                         update_type=['loss', 'eval']
                     )
@@ -2784,12 +2757,13 @@ class SynSemNet(object):
                     )
                     stderr('Sample parsing prediction:\n\n' + parse_samples)
 
-                    wp_samples = data.pretty_print_wp_predictions(
-                        text=info_dict['wp_parsing_true'][:n_print],
-                        pred=info_dict['wp_parsing_prediction_syn'][:n_print],
-                        mask=np.any(info_dict['parsing_text_mask'][:n_print], axis=-1)
-                    )
-                    stderr('Sample word position prediction:\n\n' + wp_samples)
+                    if self.wp_recurrent_decoder:
+                        wp_samples = data.pretty_print_wp_predictions(
+                            text=info_dict['wp_parsing_true'][:n_print],
+                            pred=info_dict['wp_parsing_prediction_syn'][:n_print],
+                            mask=np.any(info_dict['parsing_text_mask'][:n_print], axis=-1)
+                        )
+                        stderr('Sample word position prediction:\n\n' + wp_samples)
         
                     sts_samples = data.pretty_print_sts_predictions(
                         s1=info_dict['sts_s1_text'][:n_print],
@@ -2899,7 +2873,7 @@ class SynSemNet(object):
                         self.update_logs(
                             info_dict_train,
                             name='train',
-                            encoder=['syn', 'sem'],
+                            encoder=self.ENCODER_TYPES,
                             task=['parsing', 'wp', 'sts'],
                             update_type='loss'
                         )
@@ -3154,11 +3128,50 @@ class SynSemNet(object):
 
         return out
 
-    def eval_sts_prediction(
+    def eval_wp_predictions(
             self,
             info_dict,
             syn=True,
-            sem=True,
+            sem=True
+    ):
+        encoder = []
+        if syn:
+            encoder.append('syn')
+        if sem:
+            encoder.append('sem')
+
+        out = {}
+        for e in encoder:
+            parsing_true = info_dict['wp_parsing_true']
+            parsing_mask = np.any(info_dict['parsing_text_mask'], axis=-1)
+            parsing_pred = info_dict['wp_parsing_prediction']
+            
+            sts_s1_true = info_dict['wp_sts_s1_true']
+            sts_s1_mask = np.any(info_dict['sts_s1_text_mask'], axis=-1)
+            sts_s1_pred = info_dict['wp_sts_s1_prediction']
+
+            sts_s2_true = info_dict['wp_sts_s2_true']
+            sts_s2_mask = np.any(info_dict['sts_s2_text_mask'], axis=-1)
+            sts_s2_pred = info_dict['wp_sts_s2_prediction']
+
+            parsing_correct = np.equal(parsing_true, parsing_pred) * parsing_mask
+            sts_s1_correct = np.equal(sts_s1_true, sts_s1_pred) * sts_s1_mask
+            sts_s2_correct = np.equal(sts_s2_true, sts_s2_pred) * sts_s2_mask
+
+            n_correct = parsing_correct + sts_s1_correct + sts_s2_correct
+            n_total = parsing_mask.sum() + sts_s1_mask.sum() + sts_s2_mask.sum()
+
+            acc = n_correct / np.maximum(n_total, self.epsilon)
+
+            out['wp_acc_%s' % e] = acc
+
+        return out
+
+    def eval_sts_predictions(
+            self,
+            info_dict,
+            syn=True,
+            sem=True
     ):
         encoder = []
         if syn:
@@ -3173,26 +3186,33 @@ class SynSemNet(object):
 
         return out
 
-    def eval_prediction(
+    def eval_predictions(
             self,
             data,
             info_dict,
-            goldpath,
+            gold_tree_path=None,
             syn=True,
             sem=True,
             outdir=None,
             name=None
     ):
-        out = self.eval_parse_predictions(
-                data,
-                info_dict,
-                goldpath,
-                syn=syn,
-                sem=sem,
-                outdir=outdir,
-                name=name
-        )
-        out.update(self.eval_sts_prediction(
+        out = {}
+        if gold_tree_path is not None:
+            out.update(self.eval_parse_predictions(
+                    data,
+                    info_dict,
+                    gold_tree_path,
+                    syn=syn,
+                    sem=sem,
+                    outdir=outdir,
+                    name=name
+            ))
+        out.update(self.eval_wp_predictions(
+            info_dict,
+            syn=syn,
+            sem=syn,
+        ))
+        out.update(self.eval_sts_predictions(
             info_dict,
             syn=syn,
             sem=syn,

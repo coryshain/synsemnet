@@ -362,7 +362,7 @@ SYN_SEM_NET_KWARGS = [
     ),
     Kwarg(
         'encoder_projection_activation_inner',
-        'elu',
+        'tanh',
         [str, None],
         "Name of activation to use for prefinal layers in projection function of encoder.",
     ),
@@ -428,7 +428,7 @@ SYN_SEM_NET_KWARGS = [
     ),
     Kwarg(
         'wp_decoder_activation',
-        None,
+        'tanh',
         [str, None],
         "Name of activation to use at the output of the WP decoder.",
     ),
@@ -446,7 +446,7 @@ SYN_SEM_NET_KWARGS = [
     ),
     Kwarg(
         'wp_projection_activation_inner',
-        'elu',
+        'tanh',
         [str, None],
         "Name of activation to use for prefinal layers in projection function of WP decoder.",
     ),
@@ -546,7 +546,7 @@ SYN_SEM_NET_KWARGS = [
     ),
     Kwarg(
         'sts_decoder_activation',
-        None,
+        'tanh',
         [str, None],
         "Name of activation to use at the output of the STS decoder.",
     ),
@@ -564,7 +564,7 @@ SYN_SEM_NET_KWARGS = [
     ),
     Kwarg(
         'sts_projection_activation_inner',
-        'elu',
+        'tanh',
         [str, None],
         "Name of activation to use for prefinal layers in projection function of STS decoder.",
     ),
@@ -642,65 +642,71 @@ SYN_SEM_NET_KWARGS = [
 
     # Loss settings
     Kwarg(
+        'adversarial_gradient_scale',
+        1,
+        float,
+        "Weight on adversarial gradient."
+    ),
+    Kwarg(
         'parsing_loss_scale',
         1,
-        [float, None],
+        float,
         "Weight on parsing loss.",
         aliases=['loss_scale']
     ),
     Kwarg(
         'parsing_adversarial_loss_scale',
         1,
-        [float, None],
+        float,
         "Weight on adversarial parsing loss.",
-        aliases=['adversarial_loss_scale']
-    ),
-    Kwarg(
-        'wp_adversarial_loss_scale',
-        1,
-        [float, None],
-        "Weight on adversarial WP loss.",
         aliases=['adversarial_loss_scale']
     ),
     Kwarg(
         'wp_loss_scale',
         1,
-        [float, None],
+        float,
         "Weight on STS loss.",
         aliases=['loss_scale']
     ),
     Kwarg(
+        'wp_adversarial_loss_scale',
+        1,
+        float,
+        "Weight on adversarial WP loss.",
+        aliases=['adversarial_loss_scale']
+    ),
+    Kwarg(
         'sts_loss_scale',
         1,
-        [float, None],
+        float,
         "Weight on WP loss.",
         aliases=['loss_scale']
     ),
     Kwarg(
         'sts_adversarial_loss_scale',
         1,
-        [float, None],
+        float,
         "Weight on adversarial STS loss.",
-        aliases=['adversarial_loss_scale']
-    ),
-    Kwarg(
-        'bow_adversarial_loss_scale',
-        1,
-        [float, None],
-        "Weight on adversarial BOW loss.",
         aliases=['adversarial_loss_scale']
     ),
     Kwarg(
         'bow_loss_scale',
         1,
-        [float, None],
+        float,
         "Weight on STS loss.",
         aliases=['loss_scale']
     ),
     Kwarg(
+        'bow_adversarial_loss_scale',
+        1,
+        float,
+        "Weight on adversarial BOW loss.",
+        aliases=['adversarial_loss_scale']
+    ),
+    Kwarg(
         'well_formedness_loss_scale',
-        None,
-        [float, None],
+        0.,
+        float,
         "Weight on well-formedness losses to encourage well-formed trees."
     ),
     Kwarg(
