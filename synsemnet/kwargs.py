@@ -169,7 +169,7 @@ SYN_SEM_NET_KWARGS = [
     ),
     Kwarg(
         'epsilon',
-        1e-3,
+        1e-8,
         float,
         "Epsilon to avoid boundary violations."
     ),
@@ -275,7 +275,7 @@ SYN_SEM_NET_KWARGS = [
     # Data settings
     Kwarg(
         'os',
-        False,
+        True,
         bool,
         "Whether to use data containing sequence boundary tokens (``'-BOS-'``, ``'-EOS-'``)."
     ),
@@ -292,6 +292,12 @@ SYN_SEM_NET_KWARGS = [
         "Whether to factor parse labels into their (numeric) depth and (categorical) ancestor components and predict each separately. If ``False``, depth and category information is merged and treated as atomic.",
     ),
     Kwarg(
+        'target_vocab_size',
+        1000,
+        int,
+        "Size of vocab for WP and BOW targets. All but the top **target_vocab_size** most frequent words in the training data will be UNKed. Only affects targets, not inputs, and therefore affects the lexical granularity of the WP and BOW losses.",
+    ),
+    Kwarg(
         'wp_n_pos',
         50,
         int,
@@ -304,7 +310,7 @@ SYN_SEM_NET_KWARGS = [
         'word_emb_dim',
         None,
         [int, None],
-        "Dimensionality of vocabulary embedding layer. If ``None`` or ``0``, no vocabulary embedding used."
+        "Dimensionality of vocabulary embedding layer. ``None`` is not allowed and will raise an error."
     ),
     Kwarg(
         'bidirectional_encoder',
@@ -405,13 +411,82 @@ SYN_SEM_NET_KWARGS = [
         aliases=['resnet_n_layers_inner', 'classifier_resnet_n_layers_inner']
     ),
 
-    # WP classifier settings
+    # WP decoder/classifier settings
+    Kwarg(
+        'n_layers_wp_decoder',
+        None,
+        [int, None],
+        "Number of layers to use for WP decoder. If ``None``, inferred from length of **n_units_wp_decoder**.",
+        aliases=['n_layers_decoder']
+    ),
+    Kwarg(
+        'n_units_wp_decoder',
+        300,
+        [int, str, None],
+        "Number of units to use in WP decoder layers. Can be an ``int``, which will be used for all layers, or a ``str`` with **n_layers_wp_decoder**  space-delimited integers, one for each layer in order from top to bottom. If ``None`` no recurrent WP decoder will be used, just a simple MLP classifier.",
+        aliases=['n_units_decoder']
+    ),
+    Kwarg(
+        'wp_decoder_activation',
+        None,
+        [str, None],
+        "Name of activation to use at the output of the WP decoder.",
+    ),
+    Kwarg(
+        'wp_decoder_recurrent_activation',
+        'sigmoid',
+        [str, None],
+        "Name of activation to use for WP decoder recurrent gates. Ignored unless **wp_decoder_type** is ``rnn``.",
+    ),
+    Kwarg(
+        'wp_decoder_activation_inner',
+        'tanh',
+        [str, None],
+        "Name of activation to use for prefinal layers in the WP decoder.",
+    ),
+    Kwarg(
+        'wp_projection_activation_inner',
+        'elu',
+        [str, None],
+        "Name of activation to use for prefinal layers in projection function of WP decoder.",
+    ),
+    Kwarg(
+        'project_wp_decodings',
+        False,
+        bool,
+        "Whether to apply a linear projection at the output of the WP decoder. Ignored unless **wp_decoder_type** is ``rnn``."
+    ),
+    Kwarg(
+        'wp_decoder_resnet_n_layers_inner',
+        None,
+        [int, None],
+        "Implement internal WP decoder layers as residual layers with **wp_decoder_resnet_n_layers_inner** internal layers each. If ``None``, do not use residual layers.",
+        aliases=['resnet_n_layers_inner']
+    ),
     Kwarg(
         'n_layers_wp_classifier',
         None,
         [int, None],
         "Number of layers to use for WP classifier. If ``None``, inferred from length of **n_units_wp_classifier**.",
         aliases=['n_layers_classifier']
+    ),
+    Kwarg(
+        'wp_decoder_teacher_forcing',
+        False,
+        bool,
+        "Whether to use teacher forcing to train the WP decoder."
+    ),
+    Kwarg(
+        'wp_decoder_positional_encoding_type',
+        'periodic',
+        [None, str],
+        "Technique for representing time to the WP decoder. One of [``transformer_pe``, ``periodic``], where ``transformer_pe`` uses the Transformer positional encoding and ``periodic`` uses **decoder_positional_encoding_units** sin and cosine waves (with more high-frequency components than Transformer). If ``None``, no temporal encoding."
+    ),
+    Kwarg(
+        'wp_decoder_positional_encoding_units',
+        128,
+        [int, None],
+        "Number of dimensions in the positional encoding."
     ),
     Kwarg(
         'n_units_wp_classifier',

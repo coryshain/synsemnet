@@ -55,8 +55,12 @@ if __name__ == '__main__':
         os.makedirs(args.outdir)
     if not os.path.exists(args.outdir + '/trees'):
         os.makedirs(args.outdir + '/trees')
-    if not os.path.exists(args.outdir + '/labels'):
-        os.makedirs(args.outdir + '/labels')
+    if args.os:
+        label_dir = args.outdir + '/labels_os'
+    else:
+        label_dir = args.outdir + '/labels'
+    if not os.path.exists(label_dir):
+        os.makedirs(label_dir)
 
     # Initialize tree instance
     t = Tree()
@@ -122,7 +126,7 @@ if __name__ == '__main__':
     exit_status = os.system(r'python -m tree2labels.dataset --train %s --dev %s --test %s --output %s --treebank wsj %s %s' % (train_path, dev_path, test_path, out_path, seq_bounds, root))
 
     if exit_status == 0:
-        stderr('Data build complete. Labels for training can be found in %s.\n' % (args.outdir + '/labels/'))
+        stderr('Data build complete. Labels for training can be found in %s.\n' % label_dir)
     else:
         stderr('Data build failed. See traceback for details.\n')
 

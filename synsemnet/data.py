@@ -1,51 +1,114 @@
 import math
 import numpy as np
-import pickle
 import pdb
+import nltk
+try:
+    nltk.data.find('tokenizers/punkt')
+except LookupError:
+    nltk.download('punkt')
+from nltk import word_tokenize
 
 from synsemnet.util import stderr
 from tree2labels.utils import sequence_to_parenthesis
 
 
+def normalize_text(text, lower=True):
+    out = []
+    for i, s in enumerate(text):
+        out.append([])
+        for j, w in enumerate(s):
+            if lower:
+                w = w.lower()
+            try:
+                float(w)
+                w = '-NUM-'
+            except ValueError:
+                pass
+            out[-1].append(w)
+
+    return out
+
+
 def get_char_set(text):
-    charset = set()
+    charset = {}
     for s in text:
         for w in s:
             for c in w:
-                charset.add(c)
-    return [''] + sorted(list(charset))
+                if c in charset:
+                    charset[c] += 1
+                else:
+                    charset[c] = 1
+
+    # Most to least frequent
+    charset = sorted(list(charset.keys()), key=lambda x: (-charset[x], x))
+
+    return [''] + charset
 
 
-def get_vocabulary(text):
-    vocab = set()
+def get_vocabulary(text, special=None):
+    if special is None:
+        special = Dataset.SPECIAL
+    vocab = {}
     for s in text:
         for w in s:
-            vocab.add(w)
-    return [''] + sorted(list(vocab))
+            if not w in special:
+                if w in vocab:
+                    vocab[w] += 1
+                else:
+                    vocab[w] = 1
+
+    # Most to least frequent
+    vocab = sorted(list(vocab.keys()), key=lambda x: (-vocab[x], x))
+
+    out = special + vocab
+
+    return out
 
 
 def get_pos_label_set(pos_labels):
-    pos_label_set = set()
+    pos_label_set = {}
     for s in pos_labels:
         for p in s:
-            pos_label_set.add(p)
-    return sorted(list(pos_label_set))
+            if p in pos_label_set:
+                pos_label_set[p] += 1
+            else:
+                pos_label_set[p] = 1
+
+    # Most to least frequent
+    pos_label_set = sorted(list(pos_label_set.keys()), key=lambda x: (-pos_label_set[x], x))
+
+    return pos_label_set
 
 
 def get_parse_label_set(parse_labels):
-    parse_label_set = set()
+    parse_label_set = {}
     for s in parse_labels:
         for l in s:
-            parse_label_set.add(l)
-    return sorted(list(parse_label_set))
+            if l in parse_label_set:
+                parse_label_set[l] += 1
+            else:
+                parse_label_set[l] = 1
+
+    # Most to least frequent
+    parse_label_set = sorted(list(parse_label_set.keys()), key=lambda x: (-parse_label_set[x], x))
+
+    return parse_label_set
 
 
 def get_parse_ancestor_set(parse_labels):
-    parse_ancestor_set = set()
+    parse_ancestor_set = {}
     for s in parse_labels:
         for l in s:
-            parse_ancestor_set.add(l.split('_')[-1])
-    return sorted(list(parse_ancestor_set))
+            a = l.split('_')[-1]
+            if l in parse_ancestor_set:
+                parse_ancestor_set[a] += 1
+            else:
+                parse_ancestor_set[a] = 1
+
+    # Most to least frequent
+    parse_ancestor_set = sorted(list(parse_ancestor_set.keys()), key=lambda x: (-parse_ancestor_set[x], x))
+
+    return parse_ancestor_set
 
 
 def get_sts_label_set(sts_labels):
@@ -60,6 +123,19 @@ def get_random_permutation(n):
     p_inv = np.zeros_like(p)
     p_inv[p] = np.arange(n)
     return p, p_inv
+
+
+def clip_word_tensor(word_tensor, n_clip=None, n_special=None):
+    if n_special is None:
+        n_special = Dataset.N_SPECIAL
+    if n_clip:
+        # Words are sorted by frequency, so UNK (map to 0) word IDs > n_clip + 1
+        unk = word_tensor >= (n_clip + n_special)
+        out = np.where(unk, np.zeros_like(word_tensor), word_tensor)
+    else:
+        out = word_tensor
+
+    return out
 
 
 def pad_sequence(x, out=None, seq_shape=None, cur_ix=None, dtype='float32', reverse_axes=None, padding='pre', value=0.):
@@ -110,6 +186,34 @@ def pad_sequence(x, out=None, seq_shape=None, cur_ix=None, dtype='float32', reve
     return out
 
 
+def padded_concat(seqs, padding='pre', axis=0):
+
+    if axis > 0:
+        axis += len(seqs[0])
+
+    shape = np.stack([s.shape for s in seqs], axis=-1).max(axis=-1)
+
+    out = []
+    for s in seqs:
+        paddings = []
+        for i, (l, m) in enumerate(zip(s.shape, shape)):
+            if i != axis:
+                pad_len = m - l
+                if padding.lower() == 'pre':
+                    pad_cur = (pad_len, 0)
+                else:
+                    pad_cur = (0, pad_len)
+            else:
+                pad_cur = (0, 0)
+            paddings.append(pad_cur)
+        out.append(np.pad(s, paddings))
+
+    out = np.concatenate(out, axis=axis)
+
+    return out
+
+
+
 def rank(seqs):
     r = 0
     new_r = r
@@ -158,7 +262,7 @@ def read_parse_label_file(path):
     return text, pos_label, parse_label
 
 
-def read_sts_file(path):
+def read_sts_file(path, os=False):
     sts_s1_text = []
     sts_s2_text = []
     sts_label = []
@@ -170,6 +274,11 @@ def read_sts_file(path):
             fields = line.strip().split("\t") # sometimes has 8th and 9th fields for source?
             label, s1, s2 = fields[4:7]
             label = float(label)
+            if os:
+                s1 = '-BOS- ' + s1 + ' -EOS-'
+                s2 = '-BOS- ' + s2 + ' -EOS-'
+            s1 = word_tokenize(s1)
+            s2 = word_tokenize(s2)
             sts_s1_text.append(s1)
             sts_s2_text.append(s2)
             sts_label.append(label)
@@ -242,27 +351,38 @@ def get_evalb_scores(path):
 
 
 class Dataset(object):
+    # Constants
+    SPECIAL = ['-UNK-', '-NUM-', '-BOS-', '-EOS-']
+    N_SPECIAL = len(SPECIAL)
+
     def __init__(
             self,
             parsing_train_path,
-            sts_train_path
+            sts_train_path,
+            os=True
     ):
         self.files = {}
 
         self.initialize_parsing_file(parsing_train_path, 'train')
         parsing_text = self.files['train']['parsing_text_src']
+        parsing_normalized_text = self.files['train']['parsing_normalized_text_src']
         pos_label = self.files['train']['pos_label_src']
         parse_label = self.files['train']['parse_label_src']
 
-        self.initialize_sts_file(sts_train_path, 'train')
+        self.initialize_sts_file(sts_train_path, 'train', os=os)
         sts_s1_text = self.files['train']['sts_s1_text_src']
+
+        sts_s1_normalized_text = self.files['train']['sts_s1_normalized_text_src']
         sts_s2_text = self.files['train']['sts_s2_text_src']
+        sts_s2_normalized_text = self.files['train']['sts_s2_normalized_text_src']
         sts_label = self.files['train']['sts_label_src']
 
         texts = parsing_text + sts_s1_text + sts_s2_text
+        texts_normalized = parsing_normalized_text + sts_s1_normalized_text + sts_s2_normalized_text
 
         self.char_list = get_char_set(texts)
         self.word_list = get_vocabulary(texts)
+        self.normalized_word_list = get_vocabulary(texts_normalized)
         self.pos_label_list = get_pos_label_set(pos_label)
         self.parse_label_list = get_parse_label_set(parse_label)
         self.parse_ancestor_list = get_parse_ancestor_set(parse_label)
@@ -270,21 +390,25 @@ class Dataset(object):
 
         self.char_map = {c: i for i, c in enumerate(self.char_list)}
         self.word_map = {w: i for i, w in enumerate(self.word_list)}
+        self.normalized_word_map = {w: i for i, w in enumerate(self.normalized_word_list)}
         self.pos_label_map = {p: i for i, p in enumerate(self.pos_label_list)}
         self.parse_label_map = {l: i for i, l in enumerate(self.parse_label_list)}
         self.parse_ancestor_map = {l: i for i, l in enumerate(self.parse_ancestor_list)}
 
         self.n_char = len(self.char_map)
         self.n_word = len(self.word_map)
+        self.n_normalized_word = len(self.normalized_word_map)
         self.n_pos = len(self.pos_label_map)
         self.n_parse_label = len(self.parse_label_map)
         self.n_parse_ancestor = len(self.parse_ancestor_map)
 
     def initialize_parsing_file(self, path, name):
         text, pos_label, parse_label = read_parse_label_file(path)
+        normalized_text = normalize_text(text)
 
         new = {
             'parsing_text_src': text,
+            'parsing_normalized_text_src': normalized_text,
             'pos_label_src': pos_label,
             'parse_label_src': parse_label
         }
@@ -294,14 +418,18 @@ class Dataset(object):
         else:
             self.files[name] = new
 
-    def initialize_sts_file(self, path, name):
-        sts_s1_text, sts_s2_text, sts_label = read_sts_file(path)
+    def initialize_sts_file(self, path, name, os=False):
+        sts_s1_text, sts_s2_text, sts_label = read_sts_file(path, os=os)
+        sts_s1_normalized_text = normalize_text(sts_s1_text)
+        sts_s2_normalized_text = normalize_text(sts_s2_text)
 
         sts_label_int = [int(round(x)) for x in sts_label]
 
         new = {
             'sts_s1_text_src': sts_s1_text,
+            'sts_s1_normalized_text_src': sts_s1_normalized_text,
             'sts_s2_text_src': sts_s2_text,
+            'sts_s2_normalized_text_src': sts_s2_normalized_text,
             'sts_label_src': sts_label,
             'sts_label_int_src': sts_label_int
         }
@@ -311,43 +439,80 @@ class Dataset(object):
         else:
             self.files[name] = new
 
-    # TODO: Evan, add sents_to_bow(self, ...) method for computing BOW targets from sentences
-
-    def cache_numeric_parsing_data(self, name='train', factor_parse_labels=True):
+    def cache_numeric_parsing_data(
+            self,
+            clip_vocab=None,
+            name='train',
+            factor_parse_labels=True
+    ):
         self.files[name]['parsing_text'], self.files[name]['parsing_text_mask'] = self.symbols_to_padded_seqs(
+            'parsing_text',
             name=name,
-            data_type='parsing_text',
             return_mask=True
         )
-        self.files[name]['pos_label'] = self.symbols_to_padded_seqs(name=name, data_type='pos_label')
+        self.files[name]['parsing_normalized_text'] = clip_word_tensor(
+            self.symbols_to_padded_seqs(
+                'parsing_normalized_text',
+                char_tokenized=False,
+                name=name,
+                return_mask=False
+            ),
+            n_clip=clip_vocab
+        )
+
+
+        self.files[name]['pos_label'] = self.symbols_to_padded_seqs('pos_label', name=name)
         if factor_parse_labels:
-            self.files[name]['parse_depth'] = self.symbols_to_padded_seqs(name=name, data_type='parse_depth')
-            self.files[name]['parse_label'] = self.symbols_to_padded_seqs(name=name, data_type='parse_ancestor')
+            self.files[name]['parse_depth'] = self.symbols_to_padded_seqs('parse_depth', name=name)
+            self.files[name]['parse_label'] = self.symbols_to_padded_seqs('parse_ancestor', name=name)
         else:
             self.files[name]['parse_depth'] = None
-            self.files[name]['parse_label'] = self.symbols_to_padded_seqs(name=name, data_type='parse_label')
+            self.files[name]['parse_label'] = self.symbols_to_padded_seqs('parse_label', name=name)
 
-        # TODO: Evan, call sents_to_bow on self.files[name]['parsing_text_src'] and add output to self.files[name]
-        # under key 'parse_bow'
-
-    def cache_numeric_sts_data(self, name='train', factor_parse_labels=True):
+    def cache_numeric_sts_data(
+            self,
+            clip_vocab=None,
+            name='train',
+            factor_parse_labels=True
+    ):
         self.files[name]['sts_s1_text'], self.files[name]['sts_s1_text_mask'] = self.symbols_to_padded_seqs(
+           'sts_s1_text',
+            name=name,
+            return_mask=True
+        )
+        self.files[name]['sts_s1_normalized_text'] = clip_word_tensor(
+            self.symbols_to_padded_seqs(
+                'sts_s1_normalized_text',
+                char_tokenized=False,
                 name=name,
-                data_type='sts_s1_text',
-                return_mask=True
-                )
+                return_mask=False
+            ),
+            n_clip=clip_vocab
+        )
 
         self.files[name]['sts_s2_text'], self.files[name]['sts_s2_text_mask'] = self.symbols_to_padded_seqs(
+            'sts_s2_text',
+            name=name,
+            return_mask=True
+        )
+        self.files[name]['sts_s2_text_words'], sts_s2_word_mask = self.symbols_to_padded_seqs(
+            'sts_s2_text',
+            char_tokenized=False,
+            name=name,
+            return_mask=True
+        )
+        self.files[name]['sts_s2_normalized_text'] = clip_word_tensor(
+            self.symbols_to_padded_seqs(
+                'sts_s2_normalized_text',
+                char_tokenized=False,
                 name=name,
-                data_type='sts_s2_text',
-                return_mask=True
-                )
+                return_mask=False
+            ),
+            n_clip=clip_vocab
+        )
 
         self.files[name]['sts_label'] = np.array(self.files[name]['sts_label_src'], dtype=float)
         self.files[name]['sts_label_int'] = np.array(self.files[name]['sts_label_int_src'], dtype=int)
-
-        # TODO: Evan, call sents_to_bow on self.files[name]['sts_s{1,2}_text_src'] and add outputs to self.files[name]
-        # under key 'sts_s{1,2}_bow'
 
     def get_seqs(self, name='train', data_type='parsing_text_src', as_words=True):
         #pdb.set_trace()
@@ -370,8 +535,14 @@ class Dataset(object):
     def word_to_int(self, w):
         return self.word_map.get(w, 0)
 
+    def word_normalized_to_int(self, w):
+        return self.normalized_word_map.get(w, 0)
+
     def int_to_word(self, i):
         return self.word_list[i]
+
+    def int_to_word_normalized(self, i):
+        return self.normalized_word_list[i]
 
     def pos_label_to_int(self, p):
         return self.pos_label_map[p]
@@ -415,8 +586,8 @@ class Dataset(object):
 
     def symbols_to_padded_seqs(
             self,
+            data_type,
             name='train',
-            data_type='parsing_text',
             max_token=None,
             max_subtoken=None,
             as_char=False,
@@ -438,7 +609,10 @@ class Dataset(object):
                     if as_char:
                         f = lambda x: x
                     else:
-                        f = self.word_to_int
+                        if 'normalized' in data_type_tmp:
+                            f = self.word_normalized_to_int
+                        else:
+                            f = self.word_to_int
             else:
                 if char_tokenized:
                     as_words = False
@@ -479,7 +653,6 @@ class Dataset(object):
             f = lambda x: x
         else:
             raise ValueError('Unrecognized data_type "%s".' % data_type)
-        #print("calling get_seqs with args name, data_type, as_words: {} {} {}".format(name, data_type_tmp, as_words))
         data = self.get_seqs(name=name, data_type=data_type_tmp, as_words=as_words)
 
         out = []
@@ -523,7 +696,10 @@ class Dataset(object):
                 f = self.int_to_char
             else:
                 if word_tokenized:
-                    f = self.int_to_word
+                    if 'normalized' in data_type:
+                        f = self.int_to_word_normalized
+                    else:
+                        f = self.int_to_word
                 else:
                     raise ValueError('Text must be tokenized at the word or character level (or both).')
         elif data_type.lower() == 'pos_label':
@@ -579,6 +755,7 @@ class Dataset(object):
             randomize=False
     ):
         parsing_text = self.files[name]['parsing_text']
+        parsing_normalized_text = self.files[name]['parsing_normalized_text']
         parsing_text_mask = self.files[name]['parsing_text_mask']
         pos_label = self.files[name]['pos_label']
         parse_label = self.files[name]['parse_label']
@@ -598,12 +775,17 @@ class Dataset(object):
         while i < n:
             indices = ix[i:i+minibatch_size]
 
+            parsing_text_mask_cur = parsing_text_mask[indices]
+            parsing_word_max_len_cur = int(parsing_text_mask_cur.sum(axis=-1).max())
+            parsing_sent_max_len_cur = np.any(parsing_text_mask_cur, axis=-1).sum(axis=-1).max()
+
             out = {
-                'parsing_text': parsing_text[indices],
-                'parsing_text_mask': parsing_text_mask[indices],
-                'pos_label': pos_label[indices],
-                'parse_label': parse_label[indices],
-                'parse_depth': None if parse_depth is None else parse_depth[indices],
+                'parsing_text': parsing_text[indices][..., -parsing_sent_max_len_cur:, -parsing_word_max_len_cur:],
+                'parsing_normalized_text': parsing_normalized_text[indices][..., -parsing_sent_max_len_cur:],
+                'parsing_text_mask': parsing_text_mask_cur[..., -parsing_sent_max_len_cur:, -parsing_word_max_len_cur:],
+                'pos_label': pos_label[indices][..., -parsing_sent_max_len_cur:],
+                'parse_label': parse_label[indices][..., -parsing_sent_max_len_cur:],
+                'parse_depth': None if parse_depth is None else parse_depth[indices][..., -parsing_sent_max_len_cur:]
             }
 
             yield out
@@ -618,8 +800,10 @@ class Dataset(object):
             randomize=False
     ):
         s1_text = self.files[name]['sts_s1_text']
+        s1_normalized_text = self.files[name]['sts_s1_normalized_text']
         s1_text_mask = self.files[name]['sts_s1_text_mask']
         s2_text = self.files[name]['sts_s2_text']
+        s2_normalized_text = self.files[name]['sts_s2_normalized_text']
         s2_text_mask = self.files[name]['sts_s2_text_mask']
         if integer_targets:
             sts_label = self.files[name]['sts_label_int']
@@ -640,11 +824,20 @@ class Dataset(object):
         while i < n:
             indices = ix[i:i+minibatch_size]
 
+            s1_text_mask_cur = s1_text_mask[indices]
+            s1_word_max_len_cur = int(s1_text_mask_cur.sum(axis=-1).max())
+            s1_sent_max_len_cur = np.any(s1_text_mask_cur, axis=-1).sum(axis=-1).max()
+            s2_text_mask_cur = s2_text_mask[indices]
+            s2_word_max_len_cur = int(s2_text_mask_cur.sum(axis=-1).max())
+            s2_sent_max_len_cur = np.any(s2_text_mask_cur, axis=-1).sum(axis=-1).max()
+
             out = {
-                'sts_s1_text': s1_text[indices],
-                'sts_s1_text_mask': s1_text_mask[indices],
-                'sts_s2_text': s2_text[indices],
-                'sts_s2_text_mask': s2_text_mask[indices],
+                'sts_s1_text': s1_text[indices][..., -s1_sent_max_len_cur:, -s1_word_max_len_cur:],
+                'sts_s1_normalized_text': s1_normalized_text[indices][..., -s1_sent_max_len_cur:],
+                'sts_s1_text_mask': s1_text_mask_cur[..., -s1_sent_max_len_cur:, -s1_word_max_len_cur:],
+                'sts_s2_text': s2_text[indices][..., -s2_sent_max_len_cur:, -s2_word_max_len_cur:],
+                'sts_s2_normalized_text': s2_normalized_text[indices][..., -s2_sent_max_len_cur:],
+                'sts_s2_text_mask': s2_text_mask_cur[..., -s2_sent_max_len_cur:, -s2_word_max_len_cur:],
                 'sts_label': sts_label[indices]
             }
             yield out
@@ -663,6 +856,7 @@ class Dataset(object):
         # Parsing data
         if parsing:
             parsing_text = self.files[name]['parsing_text']
+            parsing_normalized_text = self.files[name]['parsing_normalized_text']
             parsing_text_mask = self.files[name]['parsing_text_mask']
             pos_label = self.files[name]['pos_label']
             parse_label = self.files[name]['parse_label']
@@ -670,6 +864,7 @@ class Dataset(object):
             n_p = self.get_n(name, task='parsing')
         else:
             parsing_text = None
+            parsing_normalized_text = None
             parsing_text_mask = None
             pos_label = None
             parse_label = None
@@ -679,8 +874,10 @@ class Dataset(object):
         # STS data
         if sts:
             sts_s1_text = self.files[name]['sts_s1_text']
+            sts_s1_normalized_text = self.files[name]['sts_s1_normalized_text']
             sts_s1_text_mask = self.files[name]['sts_s1_text_mask']
             sts_s2_text = self.files[name]['sts_s2_text']
+            sts_s2_normalized_text = self.files[name]['sts_s2_normalized_text']
             sts_s2_text_mask = self.files[name]['sts_s2_text_mask']
             if integer_sts_targets:
                 sts_label = self.files[name]['sts_label_int']
@@ -689,8 +886,10 @@ class Dataset(object):
             n_s = self.get_n(name, task='sts')
         else:
             sts_s1_text = None
+            sts_s1_normalized_text = None
             sts_s1_text_mask = None
             sts_s2_text = None
+            sts_s2_normalized_text = None
             sts_s2_text_mask = None
             sts_label = None
             n_s = 0
@@ -713,11 +912,16 @@ class Dataset(object):
     
                 indices_p = ix_p[i_p:i_p+minibatch_size]
 
-                parsing_text_cur = parsing_text[indices_p]
                 parsing_text_mask_cur = parsing_text_mask[indices_p]
-                pos_label_cur = pos_label[indices_p]
-                parse_label_cur = parse_label[indices_p]
-                parse_depth_cur = None if parse_depth is None else parse_depth[indices_p]
+                parsing_word_max_len_cur = int(parsing_text_mask_cur.sum(axis=-1).max())
+                parsing_sent_max_len_cur = np.any(parsing_text_mask_cur, axis=-1).sum(axis=-1).max()
+
+                parsing_text_cur = parsing_text[indices_p][..., -parsing_sent_max_len_cur:, -parsing_word_max_len_cur:]
+                parsing_normalized_text_cur = parsing_normalized_text[indices_p][..., -parsing_sent_max_len_cur:]
+                parsing_text_mask_cur = parsing_text_mask_cur[..., -parsing_sent_max_len_cur:, -parsing_word_max_len_cur:]
+                pos_label_cur = pos_label[indices_p][..., -parsing_sent_max_len_cur:]
+                parse_label_cur = parse_label[indices_p][..., -parsing_sent_max_len_cur:]
+                parse_depth_cur = None if parse_depth is None else parse_depth[indices_p][..., -parsing_sent_max_len_cur:]
 
                 i_p += minibatch_size
 
@@ -726,6 +930,7 @@ class Dataset(object):
                     ix_p = None
             else:
                 parsing_text_cur = None
+                parsing_normalized_text_cur = None
                 parsing_text_mask_cur = None
                 pos_label_cur = None
                 parse_label_cur = None
@@ -739,11 +944,20 @@ class Dataset(object):
                         ix_s = np.arange(n_s)
 
                 indices_s = ix_s[i_s:i_s+minibatch_size]
-
-                sts_s1_text_cur = sts_s1_text[indices_s]
+                
                 sts_s1_text_mask_cur = sts_s1_text_mask[indices_s]
-                sts_s2_text_cur = sts_s2_text[indices_s]
+                sts_s1_word_max_len_cur = int(sts_s1_text_mask_cur.sum(axis=-1).max())
+                sts_s1_sent_max_len_cur = np.any(sts_s1_text_mask_cur, axis=-1).sum(axis=-1).max()
                 sts_s2_text_mask_cur = sts_s2_text_mask[indices_s]
+                sts_s2_word_max_len_cur = int(sts_s2_text_mask_cur.sum(axis=-1).max())
+                sts_s2_sent_max_len_cur = np.any(sts_s2_text_mask_cur, axis=-1).sum(axis=-1).max()
+
+                sts_s1_text_cur = sts_s1_text[indices_s][..., -sts_s1_sent_max_len_cur:, -sts_s1_word_max_len_cur:]
+                sts_s1_normalized_text_cur = sts_s1_normalized_text[indices_s][..., -sts_s1_sent_max_len_cur:]
+                sts_s1_text_mask_cur = sts_s1_text_mask_cur[..., -sts_s1_sent_max_len_cur:, -sts_s1_word_max_len_cur:]
+                sts_s2_text_cur = sts_s2_text[indices_s][..., -sts_s2_sent_max_len_cur:, -sts_s2_sent_max_len_cur:]
+                sts_s2_normalized_text_cur = sts_s2_normalized_text[indices_s][..., -sts_s2_sent_max_len_cur:]
+                sts_s2_text_mask_cur = sts_s2_text_mask_cur[..., -sts_s2_sent_max_len_cur:, -sts_s2_sent_max_len_cur:]
                 sts_label_cur = sts_label[indices_s]
 
                 i_s += minibatch_size
@@ -761,13 +975,16 @@ class Dataset(object):
 
             out = {
                 'parsing_text': parsing_text_cur,
+                'parsing_normalized_text': parsing_normalized_text_cur,
                 'parsing_text_mask': parsing_text_mask_cur,
                 'pos_label': pos_label_cur,
                 'parse_label': parse_label_cur,
                 'parse_depth': parse_depth_cur,
                 'sts_s1_text': sts_s1_text_cur,
+                'sts_s1_normalized_text': sts_s1_normalized_text_cur,
                 'sts_s1_text_mask': sts_s1_text_mask_cur,
                 'sts_s2_text': sts_s2_text_cur,
+                'sts_s2_normalized_text': sts_s2_normalized_text_cur,
                 'sts_s2_text_mask': sts_s2_text_mask_cur,
                 'sts_label': sts_label_cur
             }
@@ -796,7 +1013,7 @@ class Dataset(object):
         if numeric_depth is None:
             label = self.padded_seqs_to_symbols(numeric_label, 'parse_label', mask=word_mask, as_list=True)
         else:
-            label = self.padded_seqs_to_symbols([numeric_depth, numeric_label], 'parse_joint', mask=word_mask, as_list=True, depth_on_all=False)
+            label = self.padded_seqs_to_symbols([numeric_depth, numeric_label], 'parse_joint', mask=word_mask, as_list=True)
 
         return words, pos, label
 
@@ -900,6 +1117,29 @@ class Dataset(object):
 
         return print_interlinearized(to_interlinearize)
 
+    def pretty_print_wp_predictions(
+            self,
+            text=None,
+            pred=None,
+            mask=None
+    ):
+        to_interlinearize = []
+
+        if text is not None:
+            text = self.padded_seqs_to_symbols(text, 'parsing_normalized_text', mask=mask, char_tokenized=False)
+            to_interlinearize.append(text)
+        if pred is not None:
+            pred = self.padded_seqs_to_symbols(pred, 'parsing_normalized_text', mask=mask, char_tokenized=False)
+            to_interlinearize.append(pred)
+
+        for i in range(len(text)):
+            if text is not None:
+                text[i] = ['True:'] + text[i]
+            if pred is not None:
+                pred[i] = ['Pred:'] + pred[i]
+
+        return print_interlinearized(to_interlinearize)
+
     def pretty_print_sts_predictions(
             self,
             s1=None,
@@ -914,8 +1154,8 @@ class Dataset(object):
 
         out = ''
         for i in range(len(s1)):
-            out += 'S1: ' + ''.join(s1[i]) + '\n'
-            out += 'S2: ' + ''.join(s2[i]) + '\n'
+            out += 'S1: ' + ' '.join(s1[i]) + '\n'
+            out += 'S2: ' + ' '.join(s2[i]) + '\n'
             t = sts_true[i]
             p = sts_pred[i]
             if isinstance(t, int):
