@@ -1817,7 +1817,6 @@ class SynSemNet(object):
                             info_dict['sts_s2_text'].append(sts_s2_text_batch)
                         if 'sts_s2_text_mask' in gold_keys:
                             info_dict['sts_s2_text_mask'].append(sts_s2_text_mask_batch)
-                            info_dict['sts_s2_text_mask'].append(sts_s2_text_mask_batch)
                         if 'sts_true' in gold_keys:
                             info_dict['sts_true'].append(sts_label_batch)
                         if 'wp_sts_s1_true' in gold_keys:
@@ -3144,24 +3143,24 @@ class SynSemNet(object):
         for e in encoder:
             parsing_true = info_dict['wp_parsing_true']
             parsing_mask = np.any(info_dict['parsing_text_mask'], axis=-1)
-            parsing_pred = info_dict['wp_parsing_prediction']
+            parsing_pred = info_dict['wp_parsing_prediction_%s' % e]
             
             sts_s1_true = info_dict['wp_sts_s1_true']
             sts_s1_mask = np.any(info_dict['sts_s1_text_mask'], axis=-1)
-            sts_s1_pred = info_dict['wp_sts_s1_prediction']
+            sts_s1_pred = info_dict['wp_sts_s1_prediction_%s' % e]
 
             sts_s2_true = info_dict['wp_sts_s2_true']
             sts_s2_mask = np.any(info_dict['sts_s2_text_mask'], axis=-1)
-            sts_s2_pred = info_dict['wp_sts_s2_prediction']
+            sts_s2_pred = info_dict['wp_sts_s2_prediction_%s' % e]
 
-            parsing_correct = np.equal(parsing_true, parsing_pred) * parsing_mask
-            sts_s1_correct = np.equal(sts_s1_true, sts_s1_pred) * sts_s1_mask
-            sts_s2_correct = np.equal(sts_s2_true, sts_s2_pred) * sts_s2_mask
+            parsing_correct = (np.equal(parsing_true, parsing_pred) * parsing_mask).sum()
+            sts_s1_correct = (np.equal(sts_s1_true, sts_s1_pred) * sts_s1_mask).sum()
+            sts_s2_correct = (np.equal(sts_s2_true, sts_s2_pred) * sts_s2_mask).sum()
 
             n_correct = parsing_correct + sts_s1_correct + sts_s2_correct
             n_total = parsing_mask.sum() + sts_s1_mask.sum() + sts_s2_mask.sum()
 
-            acc = n_correct / np.maximum(n_total, self.epsilon)
+            acc = (n_correct / np.maximum(n_total, self.epsilon)) * 100
 
             out['wp_acc_%s' % e] = acc
 
