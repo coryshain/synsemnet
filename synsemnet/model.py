@@ -27,8 +27,8 @@ class SynSemNet(object):
         Class implementing a SynSemNet.
 
     """
-    _doc_args = "        :param vocab: ``list``; list of vocabulary items. Items outside this list will be treated as <unk>."
-    _doc_args += "        :param charset: ``list`` of characters or ``None``; Characters to use in character-level encoder. If ``None``, no character-level representations will be used."
+    _doc_args = "\n        :param vocab: ``list``; list of vocabulary items. Items outside this list will be treated as <unk>.\n"
+    _doc_args += "        :param charset: ``list`` of characters or ``None``; Characters to use in character-level encoder. If ``None``, no character-level representations will be used.\n"
     _doc_kwargs = '\n'.join([' ' * 8 + ':param %s' % x.key + ': ' + '; '.join(
         [x.dtypes_str(), x.descr]) + ' **Default**: ``%s``.' % (
                                  x.default_value if not isinstance(x.default_value, str) else "'%s'" % x.default_value)
@@ -38,7 +38,8 @@ class SynSemNet(object):
 
     TEXT_TYPES = ['parsing', 'sts_s1', 'sts_s2']
     TASK_TYPES = ['parsing', 'wp', 'sts', 'bow']
-    ENCODER_TYPES = ['syn', 'sem']
+    REP_TYPES = ['syn', 'sem']
+    GRADIENT_TYPES = ['standard', 'adversarial', 'frozen']
     ENCODING_LEVELS = ['word_embeddings', 'word_encodings', 'sent_encoding']
 
     # def __init__(self, char_set=['a'], pos_label_set=['a'], parse_label_set=['a'], sts_label_set=['a'], **kwargs):
@@ -164,8 +165,11 @@ class SynSemNet(object):
             self.units_wp_classifier) == self.layers_wp_classifier, 'Misalignment in number of layers between n_layers_wp_classifier and n_units_wp_classifier.'
 
         # STS decoder layers and units
-        assert not self.n_units_sts_decoder is None, 'You must provide a value for **n_units_sts_decoder** when initializing a SynSemNet model.'
-        if isinstance(self.n_units_sts_decoder, str):
+        self.use_sts_decoder = True
+        if self.n_units_sts_decoder is None:
+            self.units_sts_decoder = []
+            self.use_sts_decoder = False
+        elif isinstance(self.n_units_sts_decoder, str):
             self.units_sts_decoder = [int(x) for x in self.n_units_sts_decoder.split()]
         elif isinstance(self.n_units_sts_decoder, int):
             if self.n_layers_sts_decoder is None:
@@ -284,7 +288,7 @@ class SynSemNet(object):
                 #
                 #############################################################
 
-                for s in self.ENCODER_TYPES:
+                for s in self.REP_TYPES:
                     name = 'char_rnn_%s' % s
                     val = self._initialize_rnn_module(
                         1,
@@ -325,19 +329,21 @@ class SynSemNet(object):
                 # Parsing encodings
                 for text in self.TEXT_TYPES:
                     for enc in self.ENCODING_LEVELS:
-                        for s in self.ENCODER_TYPES:
-                            for adv in [False, True]:
+                        for s in self.REP_TYPES:
+                            for grad in self.GRADIENT_TYPES:
                                 name = '%s_%s_%s' % (text, enc, s)
                                 name_base = name
-                                if adv:
+                                if grad == 'adversarial':
                                     name += '_adversarial'
-                                if adv:
                                     val = replace_gradient(
                                         tf.identity,
                                         lambda x: -x * self.adversarial_gradient_scale,
                                         session=self.sess
                                     )(getattr(self, name_base))
-                                else:
+                                elif grad == 'frozen':
+                                    name += '_frozen'
+                                    val = tf.stop_gradient(getattr(self, name_base))
+                                else: # grad == 'standard
                                     if enc == 'word_embeddings':
                                         char_name = '%s_char_embeddings_%s'% (text, s)
                                         rnn_name = 'char_rnn_%s' % s
@@ -360,7 +366,7 @@ class SynSemNet(object):
                                         word_enc_name = '%s_word_encodings_%s' % (text, s)
                                         mask_name = '%s_word_mask' % text
                                         method = self.sentence_aggregation
-                                        val = self._initialize_sentence_encoding(
+                                        val = self._aggregate_words(
                                             getattr(self, word_enc_name),
                                             mask=getattr(self, mask_name),
                                             method=method
@@ -377,7 +383,7 @@ class SynSemNet(object):
                 #############################################################
 
                 for task in self.TASK_TYPES:
-                    for s in self.ENCODER_TYPES:
+                    for s in self.REP_TYPES:
                         module_name = '%s_%s' % (task, s)
                         if task == 'parsing':
                             word_enc_name = 'parsing_word_encodings_%s' % s
@@ -432,9 +438,32 @@ class SynSemNet(object):
                             if s == 'syn':
                                 s1_enc_name += '_adversarial'
                                 s2_enc_name += '_adversarial'
+                            s1 = getattr(self, s1_enc_name)
+                            s2 = getattr(self, s2_enc_name)
+                            if self.use_sts_decoder:
+                                sts_decoder = self._initialize_sts_decoder(name='module_name')
+                                if self.sts_decoder_type.lower() == 'rnn':
+                                    s1 = sts_decoder(s1, mask=self.sts_s1_word_mask)
+                                    s2 = sts_decoder(s2, mask=self.sts_s2_word_mask)
+                                elif self.sts_decoder_type.lower() == 'cnn':
+                                    s1 = sts_decoder(s1)
+                                    s2 = sts_decoder(s2)
+                                else:
+                                    raise ValueError('Unrecognized sts_decoder_type "%s".' % self.sts_decoder_type)
+                            else:
+                                s1 = self._aggregate_words(
+                                    s1,
+                                    mask=self.sts_s1_word_mask,
+                                    method=self.sentence_aggregation
+                                )
+                                s2 = self._aggregate_words(
+                                    s2,
+                                    mask=self.sts_s2_word_mask,
+                                    method=self.sentence_aggregation
+                                )
                             o = self._initialize_sts_outputs(
-                                getattr(self, s1_enc_name),
-                                getattr(self, s2_enc_name),
+                                s1,
+                                s2,
                                 s1_mask=self.sts_s1_word_mask,
                                 s2_mask=self.sts_s2_word_mask,
                                 name=module_name
@@ -456,7 +485,7 @@ class SynSemNet(object):
 
                 # Parsing losses
                 for task in self.TASK_TYPES:
-                    for s in self.ENCODER_TYPES:
+                    for s in self.REP_TYPES:
                         if task == 'parsing':
                             if s == 'syn':
                                 scale = self.parsing_loss_scale
@@ -947,7 +976,7 @@ class SynSemNet(object):
 
                 return encoder(inputs, mask=mask) * mask[..., None]
 
-    def _initialize_sentence_encoding(self, word_encodings, mask=None, method='final'):
+    def _aggregate_words(self, word_encodings, mask=None, method='final'):
         with self.sess.as_default():
             with self.sess.graph.as_default():
                 if method.lower() == 'average':
@@ -955,13 +984,20 @@ class SynSemNet(object):
                         out = tf.reduce_mean(word_encodings, axis=-2)
                     else:
                         out = tf.reduce_sum(word_encodings, axis=-2) / tf.reduce_sum(mask, axis=-1)
-                elif method.lower() == 'max_pooling':
+                elif method.lower() == 'logsumexp':
+                    if mask is None:
+                        out = tf.reduce_logsumexp(word_encodings, axis=-2)
+                    else:
+                        out = tf.reduce_logsumexp(word_encodings * mask[..., None], axis=-2)
+                elif method.lower() == 'max':
                     if mask is None:
                         out = tf.reduce_max(word_encodings, axis=-2)
                     else:
                         out = tf.reduce_max(word_encodings * mask[..., None], axis=-2)
                 elif method.lower() == 'final':
                     out = word_encodings[..., -1, :]
+                else:
+                    raise ValueError('Unrecognized aggregation method "%s".' % method)
 
                 return out
 
@@ -1170,104 +1206,116 @@ class SynSemNet(object):
 
                 return out
 
+    def _initialize_sts_decoder(self, name=None):
+        with self.sess.as_default():
+            with self.sess.graph.as_default():
+                # Define some new tensors for STS prediction from encodings.
+                if name is None:
+                    name = 'sts'
+
+                if self.sts_decoder_type.lower() == 'cnn':
+                    sts_decoder = self._initialize_cnn_module(
+                        self.layers_sts_decoder,
+                        self.sts_kernel_size,
+                        self.units_sts_decoder,
+                        activation=self.sts_decoder_activation,
+                        activation_inner=self.sts_decoder_activation_inner,
+                        padding='same',
+                        project_encodings=self.project_sts_decodings,
+                        projection_activation_inner=self.sts_projection_activation_inner,
+                        resnet_n_layers_inner=self.sts_decoder_resnet_n_layers_inner,
+                        max_pooling_over_time=True,
+                        name=name + '_decoder'
+                    )  # confirm hyperparams with the shao2017 paper: CNN: 1 layer, filter_height=1, 300 filters, relu activation, no dropout or regularization.  then fed to difference and hadamard and concatenated.  then FCNN: 2 layers, 300 units, tanh activation, no regularization or dropout
+                elif self.sts_decoder_type.lower() == 'rnn':
+                    sts_decoder = self._initialize_rnn_module(
+                        self.layers_sts_decoder,
+                        self.units_sts_decoder,
+                        bidirectional=self.bidirectional_sts_decoder,
+                        activation=self.sts_decoder_activation,
+                        activation_inner=self.sts_decoder_activation_inner,
+                        recurrent_activation=self.sts_decoder_recurrent_activation,
+                        project_encodings=self.project_sts_decodings,
+                        projection_activation_inner=self.sts_projection_activation_inner,
+                        resnet_n_layers_inner=self.sts_decoder_resnet_n_layers_inner,
+                        return_sequences=False,
+                        name=name + '_decoder'
+                    )
+                else:
+                    raise ValueError('Unrecognized STS decoder type "%s".' % self.sts_decoder_type)
+
+                return sts_decoder
+
     def _initialize_sts_outputs(self, s1, s2, s1_mask=None, s2_mask=None, name=None):
         with self.sess.as_default():
-            # Define some new tensors for STS prediction from encodings.
-            if self.sts_loss_type.lower() == 'mse':
-                outdim = 1
-            else:
-                outdim = self.n_sts_label
+            with self.sess.graph.as_default():
+                # Define some new tensors for STS prediction from encodings.
+                if self.sts_loss_type.lower() == 'mse':
+                    outdim = 1
+                else:
+                    outdim = self.n_sts_label
 
-            if name is None:
-                name = 'sts'
-
-            if self.sts_decoder_type.lower() == 'cnn':
-                sts_decoder = self._initialize_cnn_module(
-                    self.layers_sts_decoder,
-                    self.sts_kernel_size,
-                    self.units_sts_decoder,
-                    activation=self.sts_decoder_activation,
-                    activation_inner=self.sts_decoder_activation_inner,
-                    padding='same',
-                    project_encodings=self.project_sts_decodings,
-                    projection_activation_inner=self.sts_projection_activation_inner,
-                    resnet_n_layers_inner=self.sts_decoder_resnet_n_layers_inner,
-                    max_pooling_over_time=True,
-                    name=name + '_decoder'
-                ) #confirm hyperparams with the shao2017 paper: CNN: 1 layer, filter_height=1, 300 filters, relu activation, no dropout or regularization.  then fed to difference and hadamard and concatenated.  then FCNN: 2 layers, 300 units, tanh activation, no regularization or dropout
-            elif self.sts_decoder_type.lower() == 'rnn':
-                sts_decoder = self._initialize_rnn_module(
-                    self.layers_sts_decoder,
-                    self.units_sts_decoder,
-                    bidirectional=self.bidirectional_sts_decoder,
-                    activation=self.sts_decoder_activation,
-                    activation_inner=self.sts_decoder_activation_inner,
-                    recurrent_activation=self.sts_decoder_recurrent_activation,
-                    project_encodings=self.project_sts_decodings,
-                    projection_activation_inner=self.sts_projection_activation_inner,
-                    resnet_n_layers_inner=self.sts_decoder_resnet_n_layers_inner,
-                    return_sequences=False,
-                    name=name + '_decoder'
+                #sts prediction from encoder
+                sts_features = []
+                # sts_difference_features = tf.subtract(
+                #     sts_latent_s1,
+                #     sts_latent_s2,
+                #     name=name + '_difference_features'
+                # )
+                sts_difference_features = tf.abs(
+                    s1 - s2,
+                    name=name + '_difference_features'
                 )
-            else:
-                raise ValueError('Unrecognized STS decoder type "%s".' % self.sts_decoder_type)
-            if self.sts_decoder_type.lower() == 'rnn':
-                sts_latent_s1 = sts_decoder(s1, mask=s1_mask)
-                sts_latent_s2 = sts_decoder(s2, mask=s2_mask)
-            else:
-                sts_latent_s1 = sts_decoder(s1)
-                sts_latent_s2 = sts_decoder(s2)
-            #sts prediction from encoder
-            # sts_difference_features = tf.subtract(
-            #     sts_latent_s1,
-            #     sts_latent_s2,
-            #     name=name + '_difference_features'
-            # )
-            sts_difference_features = tf.abs(
-                sts_latent_s1 - sts_latent_s2,
-                name=name + '_difference_features'
-            )
-            sts_product_features = tf.multiply(
-                sts_latent_s1,
-                sts_latent_s2,
-                name=name + '_product_features'
-            )
-            sts_features = tf.concat(
-                values=[sts_difference_features, sts_product_features],
-                axis=1,
-                name=name + '_features'
-            )
-            #sts_logit from sts_features with 2 denselayer (section 2 fcnn) from Shao 2017
-            sts_classifier = self._initialize_dense_module(
-                self.layers_sts_classifier + 1,
-                self.units_sts_classifier + [outdim],
-                activation=None,
-                activation_inner=self.sts_classifier_activation_inner,
-                resnet_n_layers_inner=self.sts_classifier_resnet_n_layers_inner,
-                name=name + '_classifier'
-            )
-            sts_logit = sts_classifier(sts_features)
-            if self.sts_loss_type.lower() == 'mse':
-                sts_logit = tf.squeeze(sts_logit, axis=-1)
-                sts_prediction = sts_logit
-            elif self.sts_loss_type.lower() == 'xent':
-                sts_prediction = tf.argmax(sts_logit, axis=-1, output_type=self.INT_TF)
-            else:
-                raise ValueError('Unrecognized sts_loss_type "%s".' % self.sts_loss_type)
+                sts_features.append(sts_difference_features)
+                sts_squared_difference_features = tf.pow(
+                    s1 - s2,
+                    2,
+                    name=name + '_squared_difference_features'
+                )
+                sts_features.append(sts_squared_difference_features)
+                sts_product_features = tf.multiply(
+                    s1,
+                    s2,
+                    name=name + '_product_features'
+                )
+                sts_features.append(sts_product_features)
+                sts_sim_features = cosine_similarity(s1, s2, epsilon=self.epsilon, session=self.sess)
+                sts_features.append(sts_sim_features)
+                # sts_features += [s1, s2]
+                sts_features = tf.concat(
+                    values=sts_features,
+                    axis=-1,
+                    name=name + '_features'
+                )
+                #sts_logit from sts_features with 2 denselayer (section 2 fcnn) from Shao 2017
+                sts_classifier = self._initialize_dense_module(
+                    self.layers_sts_classifier + 1,
+                    self.units_sts_classifier + [outdim],
+                    activation=None,
+                    activation_inner=self.sts_classifier_activation_inner,
+                    resnet_n_layers_inner=self.sts_classifier_resnet_n_layers_inner,
+                    name=name + '_classifier'
+                )
+                sts_logit = sts_classifier(sts_features)
+                if self.sts_loss_type.lower() == 'mse':
+                    sts_logit = tf.squeeze(sts_logit, axis=-1)
+                    sts_prediction = sts_logit
+                elif self.sts_loss_type.lower() == 'xent':
+                    sts_prediction = tf.argmax(sts_logit, axis=-1, output_type=self.INT_TF)
+                else:
+                    raise ValueError('Unrecognized sts_loss_type "%s".' % self.sts_loss_type)
 
-            out = {
-                'sts_decoder': sts_decoder,
-                'sts_latent_s1': sts_latent_s1,
-                'sts_latent_s2': sts_latent_s2,
-                'sts_difference_features': sts_difference_features,
-                'sts_product_features': sts_product_features,
-                'sts_features': sts_features,
-                'sts_classifier': sts_classifier,
-                'logit': sts_logit,
-                'prediction': sts_prediction
-            }
+                out = {
+                    # 'sts_difference_features': sts_difference_features,
+                    # 'sts_squared_difference_features': sts_squared_difference_features,
+                    # 'sts_product_features': sts_product_features,
+                    # 'sts_features': sts_features,
+                    'sts_classifier': sts_classifier,
+                    'logit': sts_logit,
+                    'prediction': sts_prediction
+                }
 
-            return out
+                return out
 
     def _initialize_parsing_objective(
             self,
@@ -1716,9 +1764,9 @@ class SynSemNet(object):
             data_type='both',
             info_dict=None,
             update=False,
-            return_syn_parsing_losses=False,
-            return_syn_wp_losses=False,
-            return_sem_sts_losses=False,
+            return_syn_parsing_loss=False,
+            return_syn_wp_loss=False,
+            return_sem_sts_loss=False,
             return_syn_parsing_prediction=False,
             return_sem_parsing_prediction=False,
             return_syn_wp_prediction=False,
@@ -1853,7 +1901,7 @@ class SynSemNet(object):
                     if verbose:
                         values = []
                         if update:
-                            if data_type.lower() in ['parsing', 'both'] and return_syn_parsing_losses:
+                            if data_type.lower() in ['parsing', 'both'] and return_syn_parsing_loss:
                                 values += [
                                     ('pos', batch_dict['pos_label_loss_syn']),
                                     ('label', batch_dict['parse_label_loss_syn'])
@@ -1862,11 +1910,11 @@ class SynSemNet(object):
                                     values += [
                                         ('depth', batch_dict['parse_depth_loss_syn'])
                                     ]
-                            if data_type.lower() in ['sts', 'both'] and return_sem_sts_losses:
+                            if data_type.lower() in ['sts', 'both'] and return_sem_sts_loss:
                                 values += [
                                     ('sts', batch_dict['sts_loss_sem']),
                                 ]
-                            if return_syn_wp_losses:
+                            if return_syn_wp_loss:
                                 values += [
                                     ('wp', batch_dict['wp_loss_syn'])
                                 ]
@@ -1900,16 +1948,16 @@ class SynSemNet(object):
             return_sem_parsing_losses=False,
             return_syn_parsing_prediction=False,
             return_sem_parsing_prediction=False,
-            return_syn_wp_losses=False,
-            return_sem_wp_losses=False,
+            return_syn_wp_loss=False,
+            return_sem_wp_loss=False,
             return_syn_wp_prediction=False,
             return_sem_wp_prediction=False,
-            return_syn_sts_losses=False,
-            return_sem_sts_losses=False,
+            return_syn_sts_loss=False,
+            return_sem_sts_loss=False,
             return_syn_sts_prediction=False,
             return_sem_sts_prediction=False,
-            return_syn_bow_losses=False,
-            return_sem_bow_losses=False,
+            return_syn_bow_loss=False,
+            return_sem_bow_loss=False,
             return_syn_bow_prediction=False,
             return_sem_bow_prediction=False,
             verbose=True
@@ -1925,8 +1973,8 @@ class SynSemNet(object):
         )
         
         wp_loss_tensors, wp_loss_tensor_names = self._get_wp_loss_tensors(
-            syn=return_syn_wp_losses,
-            sem=return_sem_wp_losses
+            syn=return_syn_wp_loss,
+            sem=return_sem_wp_loss
         )
 
         wp_prediction_tensors, wp_prediction_tensor_names = self._get_wp_prediction_tensors(
@@ -1935,8 +1983,8 @@ class SynSemNet(object):
         )
 
         sts_loss_tensors, sts_loss_tensor_names = self._get_sts_loss_tensors(
-            syn=return_syn_sts_losses,
-            sem=return_sem_sts_losses
+            syn=return_syn_sts_loss,
+            sem=return_sem_sts_loss
         )
 
         sts_prediction_tensors, sts_prediction_tensor_names = self._get_sts_prediction_tensors(
@@ -1992,9 +2040,9 @@ class SynSemNet(object):
                 data_type='both',
                 info_dict=info_dict,
                 update=update,
-                return_syn_parsing_losses=return_syn_parsing_losses,
-                return_syn_wp_losses=return_syn_wp_losses,
-                return_sem_sts_losses=return_sem_sts_losses,
+                return_syn_parsing_loss=return_syn_parsing_losses,
+                return_syn_wp_loss=return_syn_wp_loss,
+                return_sem_sts_loss=return_sem_sts_loss,
                 return_syn_parsing_prediction=return_syn_parsing_prediction,
                 return_sem_parsing_prediction=return_sem_parsing_prediction,
                 return_syn_wp_prediction=return_syn_wp_prediction,
@@ -2006,8 +2054,8 @@ class SynSemNet(object):
         else:
             # Parsing
             wp_parsing_loss_tensors, wp_parsing_loss_tensor_names = self._get_wp_parsing_loss_tensors(
-                syn=return_syn_wp_losses,
-                sem=return_sem_wp_losses
+                syn=return_syn_wp_loss,
+                sem=return_sem_wp_loss
             )
             wp_parsing_prediction_tensors, wp_parsing_prediction_tensor_names = self._get_wp_parsing_prediction_tensors(
                 syn=return_syn_wp_prediction,
@@ -2048,7 +2096,7 @@ class SynSemNet(object):
                     data_type='parsing',
                     info_dict=info_dict,
                     update=update,
-                    return_syn_parsing_losses=return_syn_parsing_losses,
+                    return_syn_parsing_loss=return_syn_parsing_losses,
                     return_syn_parsing_prediction=return_syn_parsing_prediction,
                     return_syn_wp_prediction=return_syn_wp_prediction,
                     return_sem_wp_prediction=return_sem_wp_prediction,
@@ -2058,8 +2106,8 @@ class SynSemNet(object):
 
             # STS
             wp_sts_loss_tensors, wp_sts_loss_tensor_names = self._get_wp_sts_loss_tensors(
-                syn=return_syn_wp_losses,
-                sem=return_sem_wp_losses
+                syn=return_syn_wp_loss,
+                sem=return_sem_wp_loss
             )
             wp_sts_prediction_tensors, wp_sts_prediction_tensor_names = self._get_wp_sts_prediction_tensors(
                 syn=return_syn_wp_prediction,
@@ -2101,7 +2149,7 @@ class SynSemNet(object):
                     data_type='sts',
                     info_dict=info_dict,
                     update=update,
-                    return_sem_sts_losses=return_sem_sts_losses,
+                    return_sem_sts_loss=return_sem_sts_loss,
                     return_syn_wp_prediction=return_syn_wp_prediction,
                     return_sem_wp_prediction=return_sem_wp_prediction,
                     return_syn_sts_prediction=return_syn_sts_prediction,
@@ -2109,7 +2157,7 @@ class SynSemNet(object):
                     verbose=verbose
                 )
 
-            if return_syn_wp_losses:
+            if return_syn_wp_loss:
                 wp_loss_syn = 0.
                 if 'wp_parsing_loss_syn' in info_dict:
                     wp_loss_syn += info_dict['wp_parsing_loss_syn']
@@ -2134,7 +2182,7 @@ class SynSemNet(object):
                 wp_acc_syn = wp_acc_syn / np.maximum(n, self.epsilon)
                 info_dict['wp_acc_syn'] = wp_acc_syn
 
-            if return_sem_wp_losses:
+            if return_sem_wp_loss:
                 wp_loss_sem = 0.
                 if 'wp_parsing_loss_sem' in info_dict:
                     wp_loss_sem += info_dict['wp_parsing_loss_sem']
@@ -2704,12 +2752,12 @@ class SynSemNet(object):
                     return_sem_parsing_losses=True,
                     return_syn_parsing_prediction=True,
                     return_sem_parsing_prediction=True,
-                    return_syn_wp_losses=True,
-                    return_sem_wp_losses=True,
+                    return_syn_wp_loss=True,
+                    return_sem_wp_loss=True,
                     return_syn_wp_prediction=True,
                     return_sem_wp_prediction=True,
-                    return_syn_sts_losses=True,
-                    return_sem_sts_losses=True,
+                    return_syn_sts_loss=True,
+                    return_sem_sts_loss=True,
                     return_syn_sts_prediction=True,
                     return_sem_sts_prediction=True,
                     verbose=verbose
@@ -2738,7 +2786,7 @@ class SynSemNet(object):
                     self.update_logs(
                         info_dict,
                         name=data_name,
-                        encoder=self.ENCODER_TYPES,
+                        encoder=self.REP_TYPES,
                         task=task,
                         update_type=['loss', 'eval']
                     )
@@ -2858,10 +2906,10 @@ class SynSemNet(object):
                         randomize=True,
                         return_syn_parsing_losses=True,
                         return_sem_parsing_losses=True,
-                        return_syn_wp_losses=True,
-                        return_sem_wp_losses=True,
-                        return_syn_sts_losses=True,
-                        return_sem_sts_losses=True,
+                        return_syn_wp_loss=True,
+                        return_sem_wp_loss=True,
+                        return_syn_sts_loss=True,
+                        return_sem_sts_loss=True,
                         verbose=verbose
                     )
 
@@ -2872,7 +2920,7 @@ class SynSemNet(object):
                         self.update_logs(
                             info_dict_train,
                             name='train',
-                            encoder=self.ENCODER_TYPES,
+                            encoder=self.REP_TYPES,
                             task=['parsing', 'wp', 'sts'],
                             update_type='loss'
                         )

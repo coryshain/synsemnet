@@ -261,6 +261,18 @@ def replace_gradient(fw_op, bw_op, session=None):
             return new_op
 
 
+def cosine_similarity(a, b, epsilon=1e-8, session=None):
+    session = get_session(session)
+    with session.as_default():
+        with session.graph.as_default():
+            dot = tf.matmul(tf.expand_dims(a, -2), tf.expand_dims(a, -1))[0]
+            a_norm = tf.norm(a, axis=-1, keepdims=True)
+            b_norm = tf.norm(a, axis=-1, keepdims=True)
+            sim = dot / tf.maximum(a_norm * b_norm, epsilon)
+
+            return sim
+
+
 class DenseLayer(object):
 
     def __init__(

@@ -377,8 +377,8 @@ SYN_SEM_NET_KWARGS = [
         'sentence_aggregation',
         'final',
         str,
-        "Aggregation method for computing a sentence encoding from the word encoding matrix. One of ``['average', 'max_pooling', 'final']``.",
-        aliases=['resnet_n_layers_inner']
+        "Aggregation method for computing a sentence encoding from the word encoding matrix. One of ``['average', 'logsumexp', 'max', 'final']``. Applied dimension-wise over time (so e.g. ``'max'`` implements max pooling over time)",
+        aliases=['sentence_aggregation']
     ),
 
     # Parsing classifier settings
@@ -526,9 +526,9 @@ SYN_SEM_NET_KWARGS = [
     ),
     Kwarg(
         'n_units_sts_decoder',
-        300,
+        None,
         [int, str, None],
-        "Number of units to use in STS decoder layers. Can be an ``int``, which will be used for all layers, or a ``str`` with **n_layers_sts_decoder**  space-delimited integers, one for each layer in order from top to bottom. ``None`` is not permitted and will raise an error -- it exists here simply to force users to specify a value.",
+        "Number of units to use in STS decoder layers. Can be an ``int``, which will be used for all layers, a ``str`` with **n_layers_sts_decoder**  space-delimited integers, one for each layer in order from top to bottom, or ``None``, in which case no STS decoder will be used (STS features will be computed deterministically from aggregated encodings).",
         aliases=['n_units_decoder']
     ),
     Kwarg(
