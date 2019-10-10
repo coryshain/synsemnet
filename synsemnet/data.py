@@ -206,7 +206,7 @@ def padded_concat(seqs, padding='pre', axis=0):
             else:
                 pad_cur = (0, 0)
             paddings.append(pad_cur)
-        out.append(np.pad(s, paddings))
+        out.append(np.pad(s, paddings, mode='constant'))
 
     out = np.concatenate(out, axis=axis)
 
