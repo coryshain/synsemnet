@@ -281,10 +281,9 @@ def cosine_similarity(a, b, epsilon=1e-8, session=None):
     session = get_session(session)
     with session.as_default():
         with session.graph.as_default():
-            dot = tf.matmul(tf.expand_dims(a, -2), tf.expand_dims(b, -1))[0]
-            a_norm = tf.norm(a, axis=-1, keepdims=True)
-            b_norm = tf.norm(b, axis=-1, keepdims=True)
-            sim = dot / tf.maximum(a_norm * b_norm, epsilon)
+            _a = tf.nn.l2_normalize(a, axis=-1, epsilon=epsilon)
+            _b = tf.nn.l2_normalize(b, axis=-1, epsilon=epsilon)
+            sim = tf.reduce_sum(_a*_b, axis=-1, keepdims=True)
 
             return sim
 
