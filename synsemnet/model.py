@@ -993,7 +993,7 @@ class SynSemNet(object):
                     if mask is None:
                         out = tf.reduce_mean(word_encodings, axis=-2)
                     else:
-                        out = tf.reduce_sum(word_encodings, axis=-2) / tf.reduce_sum(mask, axis=-1)
+                        out = tf.reduce_sum(word_encodings, axis=-2) / tf.reduce_sum(mask, axis=-1, keepdims=True)
                 elif method.lower() == 'logsumexp':
                     if mask is None:
                         out = tf.reduce_logsumexp(word_encodings, axis=-2)
