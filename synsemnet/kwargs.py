@@ -489,6 +489,12 @@ SYN_SEM_NET_KWARGS = [
         "Number of dimensions in the positional encoding."
     ),
     Kwarg(
+        'wp_decoder_reverse_targets',
+        True,
+        bool,
+        "Whether to reverse outputs in WP decoder (i.e. reconstruct backwards in time)."
+    ),
+    Kwarg(
         'n_units_wp_classifier',
         300,
         [int, str, None],

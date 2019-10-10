@@ -428,6 +428,7 @@ class SynSemNet(object):
                                     getattr(self, word_emb_name),
                                     mask=getattr(self, mask_name),
                                     clip=clip,
+                                    reverse=self.wp_decoder_reverse_targets,
                                     mode=wp_mode
                                 )
                                 for l in ['logit', 'prediction']:
@@ -940,12 +941,21 @@ class SynSemNet(object):
 
                 return out
 
-    def _scaled_dot_attn(self, q, k, v):
+    def _scaled_dot_attn(self, q, k, v, mask=None):
         with self.sess.as_default():
             with self.sess.graph.as_default():
                 scale = tf.sqrt(tf.cast(tf.shape(q)[-1], dtype=self.FLOAT_TF))
                 k = tf.matrix_transpose(k)
-                a = tf.nn.softmax(tf.matmul(q, k) / scale)
+                dot = tf.matmul(q, k)
+                if mask is not None:
+                    mask = tf.cast(mask, dtype=tf.bool)
+                    while len(mask.shape) < len(dot.shape):
+                        mask = mask[..., None]
+                    tile_ix = tf.cast(tf.shape(dot) / tf.shape(mask), self.INT_TF)
+                    mask = tf.tile(mask, tile_ix)
+                    alt = tf.fill(tf.shape(dot), -tf.float32.max)
+                    dot = tf.where(mask, dot, alt)
+                a = tf.nn.softmax(dot / scale)
                 a = tf.expand_dims(a, -1)
                 v = tf.expand_dims(v, -3)
                 scaled = v * a
@@ -1142,7 +1152,7 @@ class SynSemNet(object):
                                 x = tf.concat(x, axis=-1)
 
                             q = module(x, mask=mask)
-                            dist = self._scaled_dot_attn(q, e, w)
+                            dist = self._scaled_dot_attn(q, e, w, mask=mask)
                             logits = tf.log(tf.clip_by_value(dist, self.epsilon, 1-self.epsilon))
 
                             return logits
@@ -1168,7 +1178,7 @@ class SynSemNet(object):
 
                 return wp_classifier
 
-    def _initialize_wp_outputs(self, module, s, w, e, mask=None, clip=None, mode='decoder'):
+    def _initialize_wp_outputs(self, module, s, w, e, mask=None, clip=None, reverse=True, mode='decoder'):
         # s -> sentence encodings
         # w -> word one-hots
         # e -> word embeddings, keys
@@ -1181,7 +1191,14 @@ class SynSemNet(object):
                         e = e[..., -clip:, :]
                         if mask is not None:
                             mask = mask[..., -clip:, :]
+                    if reverse:
+                        w = tf.reverse(w, axis=[-2])
+                        e = tf.reverse(e, axis=[-2])
+                        if mask is not None:
+                            mask = tf.reverse(mask, axis=[-1])
                     logit = module(s, w, e, mask=mask)
+                    if reverse:
+                        logit = tf.reverse(logit, axis=[-2])
                 elif mode.lower() == 'classifier':
                     # Append sentence encodings
                     x = e
