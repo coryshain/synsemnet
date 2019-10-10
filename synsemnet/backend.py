@@ -288,11 +288,26 @@ def cosine_similarity(a, b, epsilon=1e-8, session=None):
             return sim
 
 
-def scaled_dot_attn(q, k, v, mask=None, float_type=tf.float32, int_type=tf.int32, session=None):
+def scaled_dot_attn(
+        q,
+        k,
+        v,
+        mask=None,
+        float_type=tf.float32,
+        int_type=tf.int32,
+        normalize_repeats=True,
+        epsilon=1e-8,
+        session=None
+):
     session = get_session(session)
     with session.as_default():
         with session.graph.as_default():
             scale = tf.sqrt(tf.cast(tf.shape(q)[-1], dtype=float_type))
+            if normalize_repeats:
+                ids = v * mask[..., None]
+                counts = tf.matrix_transpose(tf.reduce_sum(ids, axis=-2, keepdims=True))
+                weights = tf.matmul(ids, tf.reciprocal(tf.maximum(counts, epsilon)))
+                k *= weights
             k = tf.matrix_transpose(k)
             dot = tf.matmul(q, k)
             dot = infinity_mask(dot, mask=mask, float_type=float_type, int_type=int_type, session=session)

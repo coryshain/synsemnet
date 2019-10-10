@@ -65,6 +65,7 @@ if __name__ == '__main__':
         parse_label_set = data.parse_ancestor_list
     else:
         parse_label_set = data.parse_label_list
+    parse_depth_set = data.parse_depth_list
     sts_label_set = data.sts_label_set
 
     stderr('Initializing SynSemNet...\n')
@@ -73,6 +74,7 @@ if __name__ == '__main__':
         char_set,
         pos_label_set,
         parse_label_set,
+        parse_depth_set,
         sts_label_set,
         **kwargs
     )

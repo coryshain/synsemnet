@@ -100,7 +100,7 @@ def get_parse_ancestor_set(parse_labels):
     for s in parse_labels:
         for l in s:
             a = l.split('_')[-1]
-            if l in parse_ancestor_set:
+            if a in parse_ancestor_set:
                 parse_ancestor_set[a] += 1
             else:
                 parse_ancestor_set[a] = 1
@@ -109,6 +109,25 @@ def get_parse_ancestor_set(parse_labels):
     parse_ancestor_set = sorted(list(parse_ancestor_set.keys()), key=lambda x: (-parse_ancestor_set[x], x))
 
     return parse_ancestor_set
+
+
+def get_parse_depth_set(parse_labels):
+    parse_depth_set = {}
+    for s in parse_labels:
+        for l in s:
+            d = l.split('_')[0]
+            try:
+                d = int(d)
+            except ValueError:
+                d = 0
+            if d in parse_depth_set:
+                parse_depth_set[d] += 1
+            else:
+                parse_depth_set[d] = 1
+
+    parse_depth_set = sorted(list(parse_depth_set.keys()))
+
+    return parse_depth_set
 
 
 def get_sts_label_set(sts_labels):
@@ -386,6 +405,7 @@ class Dataset(object):
         self.pos_label_list = get_pos_label_set(pos_label)
         self.parse_label_list = get_parse_label_set(parse_label)
         self.parse_ancestor_list = get_parse_ancestor_set(parse_label)
+        self.parse_depth_list = get_parse_depth_set(parse_label)
         self.sts_label_set = get_sts_label_set(sts_label)
 
         self.char_map = {c: i for i, c in enumerate(self.char_list)}

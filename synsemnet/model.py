@@ -43,13 +43,14 @@ class SynSemNet(object):
     ENCODING_LEVELS = ['word_embeddings', 'word_encodings', 'sent_encoding']
 
     # def __init__(self, char_set=['a'], pos_label_set=['a'], parse_label_set=['a'], sts_label_set=['a'], **kwargs):
-    def __init__(self, char_set, pos_label_set, parse_label_set, sts_label_set, **kwargs):
+    def __init__(self, char_set, pos_label_set, parse_label_set, parse_depth_set, sts_label_set, **kwargs):
         for kwarg in SynSemNet._INITIALIZATION_KWARGS:
             setattr(self, kwarg.key, kwargs.pop(kwarg.key, kwarg.default_value))
 
         self.char_set = char_set
         self.pos_label_set = pos_label_set
         self.parse_label_set = parse_label_set
+        self.parse_depth_set = parse_depth_set
         self.sts_label_set = sts_label_set
 
         self._initialize_session()
@@ -73,6 +74,9 @@ class SynSemNet(object):
         self.n_pos = len(self.pos_label_set)
         self.n_parse_label = len(self.parse_label_set)
         self.n_sts_label = len(self.sts_label_set)
+        self.parse_depth_min = min(*self.parse_depth_set)
+        self.parse_depth_max = max(*self.parse_depth_set)
+        self.n_parse_depth = self.parse_depth_max - self.parse_depth_min
 
         # Encoder layers and units
         assert not self.n_units_encoder is None, 'You must provide a value for **n_units_encoder** when initializing a SynSemNet model.'
@@ -644,7 +648,16 @@ class SynSemNet(object):
 
                 self.parse_label = tf.placeholder(self.INT_TF, shape=[None, None], name='parse_label')
                 if self.factor_parse_labels:
-                    self.parse_depth = tf.placeholder(self.FLOAT_TF, shape=[None, None], name='parse_depth')
+                    if self.parse_depth_loss_type.lower() == 'mse':
+                        self.parse_depth_src = tf.placeholder(self.FLOAT_TF, shape=[None, None], name='parse_depth')
+                        self.parse_depth = self.parse_depth_src
+                    elif self.parse_depth_loss_type.lower() == 'xent':
+                        self.parse_depth_src = tf.placeholder(self.INT_TF, shape=[None, None], name='parse_depth')
+                        parse_depth = self.parse_depth_src + self.parse_depth_min
+                        self.parse_depth = tf.clip_by_value(parse_depth, 0, self.INT_TF.max)
+                    else:
+                        raise ValueError('Unrecognized value for parse_depth_loss_type: "%s".' % self.parse_depth_loss_type)
+
 
     def _initialize_sts_inputs(self):
         with self.sess.as_default():
@@ -1001,7 +1014,14 @@ class SynSemNet(object):
                 if name is None:
                     name = 'parsing'
 
-                units = self.n_pos + self.n_parse_label + self.factor_parse_labels
+                units = self.n_pos + self.n_parse_label
+                if self.factor_parse_labels:
+                    if self.parse_depth_loss_type.lower() == 'mse':
+                        units += 1
+                    elif self.parse_depth_loss_type.lower() == 'xent':
+                        units += self.n_parse_depth
+                    else:
+                        raise ValueError('Unrecognized value for parse_depth_loss_type: "%s".' % self.parse_depth_loss_type)
 
                 parsing_classifier = self._initialize_dense_module(
                     self.layers_parsing_classifier + 1,
@@ -1018,8 +1038,13 @@ class SynSemNet(object):
                 parse_label_logit = parsing_logit[..., self.n_pos:self.n_pos + self.n_parse_label]
                 parse_label_prediction = tf.argmax(parse_label_logit, axis=2, output_type=self.INT_TF)
                 if self.factor_parse_labels:
-                    parse_depth_logit = parsing_logit[..., self.n_pos + self.n_parse_label]
-                    parse_depth_prediction = tf.cast(tf.round(parse_depth_logit), dtype=self.INT_TF)
+                    if self.parse_depth_loss_type.lower() == 'mse':
+                        parse_depth_logit = parsing_logit[..., self.n_pos + self.n_parse_label]
+                        parse_depth_prediction = tf.cast(tf.round(parse_depth_logit), dtype=self.INT_TF)
+                    elif self.parse_depth_loss_type.lower() == 'xent':
+                        parse_depth_logit = parsing_logit[..., self.n_pos + self.n_parse_label:]
+                        parse_depth_prediction = tf.argmax(parse_depth_logit, axis=-1)
+                        parse_depth_prediction -= self.parse_depth_min
                 else:
                     parse_depth_logit = None
                     parse_depth_prediction = None
@@ -1143,6 +1168,8 @@ class SynSemNet(object):
                                 mask=mask,
                                 float_type=self.FLOAT_TF,
                                 int_type=self.INT_TF,
+                                normalize_repeats=True,
+                                epsilon=self.epsilon,
                                 session=self.sess
                             )
                             logits = tf.log(tf.clip_by_value(dist, self.epsilon, 1-self.epsilon))
@@ -1367,15 +1394,25 @@ class SynSemNet(object):
                     loss = pos_label_loss + parse_label_loss
 
                     if self.factor_parse_labels:
-                        parse_depth_loss = tf.losses.mean_squared_error(
-                            parse_depth,
-                            parse_depth_logit,
-                            weights=weights
-                        )
+                        if self.parse_depth_loss_type.lower() == 'mse':
+                            parse_depth_loss = tf.losses.mean_squared_error(
+                                parse_depth,
+                                parse_depth_logit,
+                                weights=weights
+                            )
+                        elif self.parse_depth_loss_type.lower() == 'xent':
+                            parse_depth_loss = tf.losses.sparse_softmax_cross_entropy(
+                                parse_depth,
+                                parse_depth_logit,
+                                weights=weights
+                            )
+                        else:
+                            raise ValueError(
+                                'Unrecognized value for parse_depth_loss_type: "%s".' % self.parse_depth_loss_type)
 
                         loss += parse_depth_loss
 
-                        if well_formedness_loss_scale:
+                        if well_formedness_loss_scale and self.parse_depth_loss_type.lower() == 'mse':
                             # Define well-formedness losses.
                             #   ZERO SUM: In a valid tree, word-by-word changes in depth should sum to 0.
                             #             Encouraged by an L1 loss on the sum of the predicted depths.
@@ -1862,7 +1899,7 @@ class SynSemNet(object):
                             self.parse_label: parse_label_batch,
                         })
                         if self.factor_parse_labels:
-                            fd_minibatch[self.parse_depth] = parse_depth_batch
+                            fd_minibatch[self.parse_depth_src] = parse_depth_batch
                     if data_type.lower() in ['sts', 'both']:
                         sts_s1_text_batch = batch['sts_s1_text']
                         sts_s1_normalized_text_batch = batch['sts_s1_normalized_text']

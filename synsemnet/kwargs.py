@@ -722,10 +722,16 @@ SYN_SEM_NET_KWARGS = [
         "Weight on well-formedness losses to encourage well-formed trees."
     ),
     Kwarg(
+        'parse_depth_loss_type',
+        'xent',
+        str,
+        "Type of loss to use for Parse depth. One of ``['mse', 'xent']``. MSE gives scalar predictions, and XENT gives categorial (softmax) predictions. Ignored unless **factor_parse_labels** is ``True``."
+    ),
+    Kwarg(
         'sts_loss_type',
         'xent',
         str,
-        "Type of loss to use for STS. One of ``['continuous', 'categorical']``."
+        "Type of loss to use for STS. One of ``['mse', 'xent']``. MSE gives scalar predictions, and XENT gives categorial (softmax) predictions."
     ),
 
     # Numeric settings
