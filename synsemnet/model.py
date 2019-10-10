@@ -161,8 +161,7 @@ class SynSemNet(object):
         if len(self.units_wp_classifier) == 1:
             self.units_wp_classifier = [self.units_wp_classifier[0]] * self.layers_wp_classifier
 
-        assert len(
-            self.units_wp_classifier) == self.layers_wp_classifier, 'Misalignment in number of layers between n_layers_wp_classifier and n_units_wp_classifier.'
+        assert len(self.units_wp_classifier) == self.layers_wp_classifier, 'Misalignment in number of layers between n_layers_wp_classifier and n_units_wp_classifier.'
 
         # STS decoder layers and units
         self.use_sts_decoder = True
@@ -465,8 +464,7 @@ class SynSemNet(object):
                             o = self._initialize_sts_outputs(
                                 s1,
                                 s2,
-                                s1_mask=self.sts_s1_word_mask,
-                                s2_mask=self.sts_s2_word_mask,
+                                use_classifier=self.use_sts_classifier,
                                 name=module_name
                             )
                             for l in ['logit', 'prediction']:
@@ -941,28 +939,6 @@ class SynSemNet(object):
 
                 return out
 
-    def _scaled_dot_attn(self, q, k, v, mask=None):
-        with self.sess.as_default():
-            with self.sess.graph.as_default():
-                scale = tf.sqrt(tf.cast(tf.shape(q)[-1], dtype=self.FLOAT_TF))
-                k = tf.matrix_transpose(k)
-                dot = tf.matmul(q, k)
-                if mask is not None:
-                    mask = tf.cast(mask, dtype=tf.bool)
-                    while len(mask.shape) < len(dot.shape):
-                        mask = mask[..., None]
-                    tile_ix = tf.cast(tf.shape(dot) / tf.shape(mask), self.INT_TF)
-                    mask = tf.tile(mask, tile_ix)
-                    alt = tf.fill(tf.shape(dot), -tf.float32.max)
-                    dot = tf.where(mask, dot, alt)
-                a = tf.nn.softmax(dot / scale)
-                a = tf.expand_dims(a, -1)
-                v = tf.expand_dims(v, -3)
-                scaled = v * a
-                out = tf.reduce_sum(scaled, axis=-2)
-
-                return out
-
     def _initialize_word_embeddings(self, inputs, encoder, character_mask=None):
         with self.sess.as_default():
             with self.sess.graph.as_default():
@@ -995,15 +971,23 @@ class SynSemNet(object):
                     else:
                         out = tf.reduce_sum(word_encodings, axis=-2) / tf.reduce_sum(mask, axis=-1, keepdims=True)
                 elif method.lower() == 'logsumexp':
-                    if mask is None:
-                        out = tf.reduce_logsumexp(word_encodings, axis=-2)
-                    else:
-                        out = tf.reduce_logsumexp(word_encodings * mask[..., None], axis=-2)
+                    out = reduce_logsumexp(
+                        word_encodings,
+                        axis=-2,
+                        mask=mask,
+                        float_type=self.FLOAT_TF,
+                        int_type=self.INT_TF,
+                        session=self.sess
+                    )
                 elif method.lower() == 'max':
-                    if mask is None:
-                        out = tf.reduce_max(word_encodings, axis=-2)
-                    else:
-                        out = tf.reduce_max(word_encodings * mask[..., None], axis=-2)
+                    out = reduce_max(
+                        word_encodings,
+                        axis=-2,
+                        mask=mask,
+                        float_type=self.FLOAT_TF,
+                        int_type=self.INT_TF,
+                        session=self.sess
+                    )
                 elif method.lower() == 'final':
                     out = word_encodings[..., -1, :]
                 else:
@@ -1152,7 +1136,15 @@ class SynSemNet(object):
                                 x = tf.concat(x, axis=-1)
 
                             q = module(x, mask=mask)
-                            dist = self._scaled_dot_attn(q, e, w, mask=mask)
+                            dist = scaled_dot_attn(
+                                q,
+                                e,
+                                w,
+                                mask=mask,
+                                float_type=self.FLOAT_TF,
+                                int_type=self.INT_TF,
+                                session=self.sess
+                            )
                             logits = tf.log(tf.clip_by_value(dist, self.epsilon, 1-self.epsilon))
 
                             return logits
@@ -1263,7 +1255,7 @@ class SynSemNet(object):
 
                 return sts_decoder
 
-    def _initialize_sts_outputs(self, s1, s2, s1_mask=None, s2_mask=None, name=None):
+    def _initialize_sts_outputs(self, s1, s2, use_classifier=True, name=None):
         with self.sess.as_default():
             with self.sess.graph.as_default():
                 # Define some new tensors for STS prediction from encodings.
@@ -1272,62 +1264,67 @@ class SynSemNet(object):
                 else:
                     outdim = self.n_sts_label
 
-                #sts prediction from encoder
-                sts_features = []
-                # sts_difference_features = tf.subtract(
-                #     sts_latent_s1,
-                #     sts_latent_s2,
-                #     name=name + '_difference_features'
-                # )
-                sts_difference_features = tf.abs(
-                    s1 - s2,
-                    name=name + '_difference_features'
-                )
-                sts_features.append(sts_difference_features)
-                sts_squared_difference_features = tf.pow(
-                    s1 - s2,
-                    2,
-                    name=name + '_squared_difference_features'
-                )
-                sts_features.append(sts_squared_difference_features)
-                sts_product_features = tf.multiply(
-                    s1,
-                    s2,
-                    name=name + '_product_features'
-                )
-                sts_features.append(sts_product_features)
-                sts_sim_features = cosine_similarity(s1, s2, epsilon=self.epsilon, session=self.sess)
-                sts_features.append(sts_sim_features)
-                # sts_features += [s1, s2]
-                sts_features = tf.concat(
-                    values=sts_features,
-                    axis=-1,
-                    name=name + '_features'
-                )
-                #sts_logit from sts_features with 2 denselayer (section 2 fcnn) from Shao 2017
-                sts_classifier = self._initialize_dense_module(
-                    self.layers_sts_classifier + 1,
-                    self.units_sts_classifier + [outdim],
-                    activation=None,
-                    activation_inner=self.sts_classifier_activation_inner,
-                    resnet_n_layers_inner=self.sts_classifier_resnet_n_layers_inner,
-                    name=name + '_classifier'
-                )
-                sts_logit = sts_classifier(sts_features)
-                if self.sts_loss_type.lower() == 'mse':
-                    sts_logit = tf.squeeze(sts_logit, axis=-1)
-                    sts_prediction = sts_logit
-                elif self.sts_loss_type.lower() == 'xent':
-                    sts_prediction = tf.argmax(sts_logit, axis=-1, output_type=self.INT_TF)
+                if use_classifier:
+                    #sts prediction from encoder
+                    sts_features = []
+                    # sts_difference_features = tf.subtract(
+                    #     sts_latent_s1,
+                    #     sts_latent_s2,
+                    #     name=name + '_difference_features'
+                    # )
+                    sts_difference_features = tf.abs(
+                        s1 - s2,
+                        name=name + '_difference_features'
+                    )
+                    sts_features.append(sts_difference_features)
+                    sts_squared_difference_features = tf.pow(
+                        s1 - s2,
+                        2,
+                        name=name + '_squared_difference_features'
+                    )
+                    sts_features.append(sts_squared_difference_features)
+                    sts_product_features = tf.multiply(
+                        s1,
+                        s2,
+                        name=name + '_product_features'
+                    )
+                    sts_features.append(sts_product_features)
+                    sts_sim_features = cosine_similarity(s1, s2, epsilon=self.epsilon, session=self.sess)
+                    sts_features.append(sts_sim_features)
+                    # sts_features += [s1, s2]
+                    sts_features = tf.concat(
+                        values=sts_features,
+                        axis=-1,
+                        name=name + '_features'
+                    )
+                    #sts_logit from sts_features with 2 denselayer (section 2 fcnn) from Shao 2017
+                    sts_classifier = self._initialize_dense_module(
+                        self.layers_sts_classifier + 1,
+                        self.units_sts_classifier + [outdim],
+                        activation=None,
+                        activation_inner=self.sts_classifier_activation_inner,
+                        resnet_n_layers_inner=self.sts_classifier_resnet_n_layers_inner,
+                        name=name + '_classifier'
+                    )
+                    sts_logit = sts_classifier(sts_features)
+                    if self.sts_loss_type.lower() == 'mse':
+                        sts_logit = tf.squeeze(sts_logit, axis=-1)
+                        sts_prediction = sts_logit
+                    elif self.sts_loss_type.lower() == 'xent':
+                        sts_prediction = tf.argmax(sts_logit, axis=-1, output_type=self.INT_TF)
+                    else:
+                        raise ValueError('Unrecognized sts_loss_type "%s".' % self.sts_loss_type)
+
                 else:
-                    raise ValueError('Unrecognized sts_loss_type "%s".' % self.sts_loss_type)
+                    sts_logit = cosine_similarity(s1, s2, epsilon=self.epsilon, session=self.sess)[..., 0] * 5 # Output is on a scale from 0 to 5
+                    sts_prediction = sts_logit
 
                 out = {
                     # 'sts_difference_features': sts_difference_features,
                     # 'sts_squared_difference_features': sts_squared_difference_features,
                     # 'sts_product_features': sts_product_features,
                     # 'sts_features': sts_features,
-                    'sts_classifier': sts_classifier,
+                    # 'sts_classifier': sts_classifier,
                     'logit': sts_logit,
                     'prediction': sts_prediction
                 }

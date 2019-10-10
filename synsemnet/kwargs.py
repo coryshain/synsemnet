@@ -588,6 +588,12 @@ SYN_SEM_NET_KWARGS = [
         aliases=['resnet_n_layers_inner']
     ),
     Kwarg(
+        'use_sts_classifier',
+        True,
+        bool,
+        "Whether to use an MLP classifier to generate STS outputs. If not, cosine similarity is directly used as the classification. If ``true``, forces **sts_loss_type** to ``mse``."
+    ),
+    Kwarg(
         'n_layers_sts_classifier',
         None,
         [int, None],
