@@ -653,7 +653,7 @@ class SynSemNet(object):
                         self.parse_depth = self.parse_depth_src
                     elif self.parse_depth_loss_type.lower() == 'xent':
                         self.parse_depth_src = tf.placeholder(self.INT_TF, shape=[None, None], name='parse_depth')
-                        parse_depth = self.parse_depth_src + self.parse_depth_min
+                        parse_depth = self.parse_depth_src - self.parse_depth_min
                         self.parse_depth = tf.clip_by_value(parse_depth, 0, self.INT_TF.max)
                     else:
                         raise ValueError('Unrecognized value for parse_depth_loss_type: "%s".' % self.parse_depth_loss_type)
@@ -1044,7 +1044,7 @@ class SynSemNet(object):
                     elif self.parse_depth_loss_type.lower() == 'xent':
                         parse_depth_logit = parsing_logit[..., self.n_pos + self.n_parse_label:]
                         parse_depth_prediction = tf.argmax(parse_depth_logit, axis=-1)
-                        parse_depth_prediction -= self.parse_depth_min
+                        parse_depth_prediction += self.parse_depth_min
                 else:
                     parse_depth_logit = None
                     parse_depth_prediction = None
