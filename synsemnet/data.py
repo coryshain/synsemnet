@@ -405,7 +405,7 @@ class Dataset(object):
         self.pos_label_list = get_pos_label_set(pos_label)
         self.parse_label_list = get_parse_label_set(parse_label)
         self.parse_ancestor_list = get_parse_ancestor_set(parse_label)
-        self.parse_depth_list = get_parse_depth_set(parse_label)
+        self.parse_depth_rel_list = get_parse_depth_set(parse_label)
         self.sts_label_set = get_sts_label_set(sts_label)
 
         self.char_map = {c: i for i, c in enumerate(self.char_list)}
@@ -697,8 +697,8 @@ class Dataset(object):
         if data_type.lower().endswith('parse_depth'):
             final_depth = -out[..., :-1].sum(axis=-1)
             out[..., -1] = final_depth
-        if not rel_depth:
-            out = out.cumsum(axis=-1)
+            if not rel_depth:
+                out = out.cumsum(axis=-1)
         if return_mask:
             mask = pad_sequence(mask)
 

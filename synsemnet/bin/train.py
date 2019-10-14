@@ -67,7 +67,7 @@ if __name__ == '__main__':
         parse_label_set = data.parse_ancestor_list
     else:
         parse_label_set = data.parse_label_list
-    parse_depth_set = data.parse_depth_list
+    parse_depth_set = data.parse_depth_rel_list
     sts_label_set = data.sts_label_set
 
     stderr('Initializing SynSemNet...\n')
