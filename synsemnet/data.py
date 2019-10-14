@@ -462,6 +462,7 @@ class Dataset(object):
     def cache_numeric_parsing_data(
             self,
             clip_vocab=None,
+            rel_depth=False,
             name='train',
             factor_parse_labels=True
     ):
@@ -483,7 +484,7 @@ class Dataset(object):
 
         self.files[name]['pos_label'] = self.symbols_to_padded_seqs('pos_label', name=name)
         if factor_parse_labels:
-            self.files[name]['parse_depth'] = self.symbols_to_padded_seqs('parse_depth', name=name)
+            self.files[name]['parse_depth'] = self.symbols_to_padded_seqs('parse_depth', rel_depth=rel_depth, name=name)
             self.files[name]['parse_label'] = self.symbols_to_padded_seqs('parse_ancestor', name=name)
         else:
             self.files[name]['parse_depth'] = None
@@ -492,8 +493,7 @@ class Dataset(object):
     def cache_numeric_sts_data(
             self,
             clip_vocab=None,
-            name='train',
-            factor_parse_labels=True
+            name='train'
     ):
         self.files[name]['sts_s1_text'], self.files[name]['sts_s1_text_mask'] = self.symbols_to_padded_seqs(
            'sts_s1_text',
@@ -613,6 +613,7 @@ class Dataset(object):
             as_char=False,
             word_tokenized=True,
             char_tokenized=True,
+            rel_depth=False,
             return_mask=False
     ):
         data_type_tmp = data_type + '_src'
@@ -693,6 +694,8 @@ class Dataset(object):
         if data_type.lower().endswith('parse_depth'):
             final_depth = -out[..., :-1].sum(axis=-1)
             out[..., -1] = final_depth
+        if not rel_depth:
+            out = out.cumsum(axis=-1)
         if return_mask:
             mask = pad_sequence(mask)
 

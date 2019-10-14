@@ -39,12 +39,14 @@ if __name__ == '__main__':
     data.cache_numeric_parsing_data(
         name='train',
         factor_parse_labels=p['factor_parse_labels'],
+        rel_depth=p['parsing_relative_depth'],
         clip_vocab=p['target_vocab_size'] - Dataset.N_SPECIAL
     )
     stderr('Caching numeric parsing dev data...\n')
     data.cache_numeric_parsing_data(
         name='dev',
         factor_parse_labels=p['factor_parse_labels'],
+        rel_depth=p['parsing_relative_depth'],
         clip_vocab=p['target_vocab_size'] - Dataset.N_SPECIAL
     )
 

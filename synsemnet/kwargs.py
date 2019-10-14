@@ -292,6 +292,12 @@ SYN_SEM_NET_KWARGS = [
         "Whether to factor parse labels into their (numeric) depth and (categorical) ancestor components and predict each separately. If ``False``, depth and category information is merged and treated as atomic.",
     ),
     Kwarg(
+        'parsing_relative_depth',
+        False,
+        bool,
+        "Whether to predict relatve (vs. absolute) depth in the parsing task.",
+    ),
+    Kwarg(
         'target_vocab_size',
         1000,
         int,
@@ -382,6 +388,12 @@ SYN_SEM_NET_KWARGS = [
     ),
 
     # Parsing classifier settings
+    Kwarg(
+        'residual_parser',
+        True,
+        bool,
+        "Whether to generate parse depths and labels as diffs from previous prediction."
+    ),
     Kwarg(
         'n_layers_parsing_classifier',
         None,

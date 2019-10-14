@@ -394,6 +394,7 @@ class SynSemNet(object):
                                 word_enc_name += '_adversarial'
                             o = self._initialize_parsing_outputs(
                                 getattr(self, word_enc_name),
+                                residual_parser=self.residual_parser,
                                 name=module_name
                             )
                             for l in ['logit', 'prediction']:
@@ -1008,7 +1009,7 @@ class SynSemNet(object):
 
                 return out
 
-    def _initialize_parsing_outputs(self, s, name=None):
+    def _initialize_parsing_outputs(self, s, residual_parser=True, name=None):
         with self.sess.as_default():
             with self.sess.graph.as_default():
                 if name is None:
@@ -1036,13 +1037,19 @@ class SynSemNet(object):
                 pos_label_logit = parsing_logit[..., :self.n_pos]
                 pos_label_prediction = tf.argmax(pos_label_logit, axis=2, output_type=self.INT_TF)
                 parse_label_logit = parsing_logit[..., self.n_pos:self.n_pos + self.n_parse_label]
+                if residual_parser:
+                    parse_label_logit = tf.cumsum(parse_label_logit, axis=1)
                 parse_label_prediction = tf.argmax(parse_label_logit, axis=2, output_type=self.INT_TF)
                 if self.factor_parse_labels:
                     if self.parse_depth_loss_type.lower() == 'mse':
                         parse_depth_logit = parsing_logit[..., self.n_pos + self.n_parse_label]
+                        if residual_parser:
+                            parse_depth_logit = tf.cumsum(parse_depth_logit, axis=1)
                         parse_depth_prediction = tf.cast(tf.round(parse_depth_logit), dtype=self.INT_TF)
                     elif self.parse_depth_loss_type.lower() == 'xent':
                         parse_depth_logit = parsing_logit[..., self.n_pos + self.n_parse_label:]
+                        if residual_parser:
+                            parse_depth_logit = tf.cumsum(parse_depth_logit, axis=1)
                         parse_depth_prediction = tf.argmax(parse_depth_logit, axis=-1)
                         parse_depth_prediction += self.parse_depth_min
                 else:
