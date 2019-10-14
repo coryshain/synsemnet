@@ -76,7 +76,7 @@ class SynSemNet(object):
         self.n_sts_label = len(self.sts_label_set)
         self.parse_depth_min = min(*self.parse_depth_set)
         self.parse_depth_max = max(*self.parse_depth_set)
-        self.n_parse_depth = self.parse_depth_max - self.parse_depth_min
+        self.n_parse_depth = self.parse_depth_max - self.parse_depth_min + 1
 
         # Encoder layers and units
         assert not self.n_units_encoder is None, 'You must provide a value for **n_units_encoder** when initializing a SynSemNet model.'
@@ -1377,7 +1377,7 @@ class SynSemNet(object):
                         pos_label = self.pos_label
                     if parse_label is None:
                         parse_label = self.parse_label
-                    if parse_depth is None:
+                    if self.factor_parse_labels and parse_depth is None:
                         parse_depth = self.parse_depth
 
                     pos_label_loss = tf.losses.sparse_softmax_cross_entropy(
@@ -1678,11 +1678,14 @@ class SynSemNet(object):
                 # TODO: Cory, add BOW logging
 
     def _initialize_parsing_loss_log_entries(self):
-        return [
+        out = [
             'pos_label_loss',
-            'parse_label_loss',
-            'parse_depth_loss',
+            'parse_label_loss'
         ]
+        if self.factor_parse_labels:
+            out.append('parse_depth_loss')
+        
+        return out
 
     def _initialize_parsing_eval_log_entries(self):
         return [
