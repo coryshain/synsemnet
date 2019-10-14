@@ -555,29 +555,32 @@ class Dataset(object):
     def word_to_int(self, w):
         return self.word_map.get(w, 0)
 
-    def word_normalized_to_int(self, w):
-        return self.normalized_word_map.get(w, 0)
-
     def int_to_word(self, i):
         return self.word_list[i]
+
+    def word_normalized_to_int(self, w):
+        return self.normalized_word_map.get(w, 0)
 
     def int_to_word_normalized(self, i):
         return self.normalized_word_list[i]
 
     def pos_label_to_int(self, p):
-        return self.pos_label_map[p]
+        return self.pos_label_map.get(p, 0)
 
     def int_to_pos_label(self, i):
         return self.pos_label_list[i]
 
     def parse_label_to_int(self, l):
-        return self.parse_label_map[l]
+        return self.parse_label_map.get(l, 0)
 
     def int_to_parse_label(self, i):
-        return self.parse_label_list[i]
+        out = self.parse_label_list[i]
+        if out in ['NONE', '-BOS-', '-EOS-']:
+            out = '0_' + out
+        return out
 
     def parse_ancestor_to_int(self, a):
-        return self.parse_ancestor_map[a.split('_')[-1]]
+        return self.parse_ancestor_map.get(a.split('_')[-1], 0)
 
     def int_to_parse_ancestor(self, i):
         return self.parse_ancestor_list[i]
