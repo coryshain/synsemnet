@@ -292,6 +292,12 @@ SYN_SEM_NET_KWARGS = [
         "Whether to factor parse labels into their (numeric) depth and (categorical) ancestor components and predict each separately. If ``False``, depth and category information is merged and treated as atomic.",
     ),
     Kwarg(
+        'parsing_relative_depth',
+        False,
+        bool,
+        "Whether to predict relatve (vs. absolute) depth in the parsing task.",
+    ),
+    Kwarg(
         'target_vocab_size',
         1000,
         int,
@@ -377,11 +383,17 @@ SYN_SEM_NET_KWARGS = [
         'sentence_aggregation',
         'final',
         str,
-        "Aggregation method for computing a sentence encoding from the word encoding matrix. One of ``['average', 'max_pooling', 'final']``.",
-        aliases=['resnet_n_layers_inner']
+        "Aggregation method for computing a sentence encoding from the word encoding matrix. One of ``['average', 'logsumexp', 'max', 'final']``. Applied dimension-wise over time (so e.g. ``'max'`` implements max pooling over time)",
+        aliases=['sentence_aggregation']
     ),
 
     # Parsing classifier settings
+    Kwarg(
+        'residual_parser',
+        True,
+        bool,
+        "Whether to generate parse depths and labels as diffs from previous prediction."
+    ),
     Kwarg(
         'n_layers_parsing_classifier',
         None,
@@ -489,6 +501,12 @@ SYN_SEM_NET_KWARGS = [
         "Number of dimensions in the positional encoding."
     ),
     Kwarg(
+        'wp_decoder_reverse_targets',
+        True,
+        bool,
+        "Whether to reverse outputs in WP decoder (i.e. reconstruct backwards in time)."
+    ),
+    Kwarg(
         'n_units_wp_classifier',
         300,
         [int, str, None],
@@ -526,9 +544,9 @@ SYN_SEM_NET_KWARGS = [
     ),
     Kwarg(
         'n_units_sts_decoder',
-        300,
+        None,
         [int, str, None],
-        "Number of units to use in STS decoder layers. Can be an ``int``, which will be used for all layers, or a ``str`` with **n_layers_sts_decoder**  space-delimited integers, one for each layer in order from top to bottom. ``None`` is not permitted and will raise an error -- it exists here simply to force users to specify a value.",
+        "Number of units to use in STS decoder layers. Can be an ``int``, which will be used for all layers, a ``str`` with **n_layers_sts_decoder**  space-delimited integers, one for each layer in order from top to bottom, or ``None``, in which case no STS decoder will be used (STS features will be computed deterministically from aggregated encodings).",
         aliases=['n_units_decoder']
     ),
     Kwarg(
@@ -580,6 +598,12 @@ SYN_SEM_NET_KWARGS = [
         [int, None],
         "Implement internal STS decoder layers as residual layers with **sts_decoder_resnet_n_layers_inner** internal layers each. If ``None``, do not use residual layers.",
         aliases=['resnet_n_layers_inner']
+    ),
+    Kwarg(
+        'use_sts_classifier',
+        True,
+        bool,
+        "Whether to use an MLP classifier to generate STS outputs. If not, cosine similarity is directly used as the classification. If ``true``, forces **sts_loss_type** to ``mse``."
     ),
     Kwarg(
         'n_layers_sts_classifier',
@@ -710,10 +734,16 @@ SYN_SEM_NET_KWARGS = [
         "Weight on well-formedness losses to encourage well-formed trees."
     ),
     Kwarg(
+        'parse_depth_loss_type',
+        'xent',
+        str,
+        "Type of loss to use for Parse depth. One of ``['mse', 'xent']``. MSE gives scalar predictions, and XENT gives categorial (softmax) predictions. Ignored unless **factor_parse_labels** is ``True``."
+    ),
+    Kwarg(
         'sts_loss_type',
         'xent',
         str,
-        "Type of loss to use for STS. One of ``['continuous', 'categorical']``."
+        "Type of loss to use for STS. One of ``['mse', 'xent']``. MSE gives scalar predictions, and XENT gives categorial (softmax) predictions."
     ),
 
     # Numeric settings

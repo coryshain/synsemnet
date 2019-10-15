@@ -261,6 +261,84 @@ def replace_gradient(fw_op, bw_op, session=None):
             return new_op
 
 
+def infinity_mask(a, mask=None, float_type=tf.float32, int_type=tf.int32, session=None):
+    session = get_session(session)
+    with session.as_default():
+        with session.graph.as_default():
+            if mask is not None:
+                mask = tf.cast(mask, dtype=tf.bool)
+                while len(mask.shape) < len(a.shape):
+                    mask = mask[..., None]
+                tile_ix = tf.cast(tf.shape(a) / tf.shape(mask), dtype=int_type)
+                mask = tf.tile(mask, tile_ix)
+                alt = tf.fill(tf.shape(a), -float_type.max)
+                a = tf.where(mask, a, alt)
+
+            return a
+
+
+def cosine_similarity(a, b, epsilon=1e-8, session=None):
+    session = get_session(session)
+    with session.as_default():
+        with session.graph.as_default():
+            _a = tf.nn.l2_normalize(a, axis=-1, epsilon=epsilon)
+            _b = tf.nn.l2_normalize(b, axis=-1, epsilon=epsilon)
+            sim = tf.reduce_sum(_a*_b, axis=-1, keepdims=True)
+
+            return sim
+
+
+def scaled_dot_attn(
+        q,
+        k,
+        v,
+        mask=None,
+        float_type=tf.float32,
+        int_type=tf.int32,
+        normalize_repeats=True,
+        epsilon=1e-8,
+        session=None
+):
+    session = get_session(session)
+    with session.as_default():
+        with session.graph.as_default():
+            scale = tf.sqrt(tf.cast(tf.shape(q)[-1], dtype=float_type))
+            if normalize_repeats:
+                ids = v * mask[..., None]
+                counts = tf.matrix_transpose(tf.reduce_sum(ids, axis=-2, keepdims=True))
+                weights = tf.matmul(ids, tf.reciprocal(tf.maximum(counts, epsilon)))
+                k *= weights
+            k = tf.matrix_transpose(k)
+            dot = tf.matmul(q, k)
+            dot = infinity_mask(dot, mask=mask, float_type=float_type, int_type=int_type, session=session)
+            a = tf.nn.softmax(dot / scale)
+            a = tf.expand_dims(a, -1)
+            v = tf.expand_dims(v, -3)
+            scaled = v * a
+            out = tf.reduce_sum(scaled, axis=-2)
+
+            return out
+
+
+def reduce_logsumexp(a, axis=None, mask=None, float_type=tf.float32, int_type=tf.int32, session=None):
+    session = get_session(session)
+    with session.as_default():
+        with session.graph.as_default():
+            a = infinity_mask(a, mask=mask, float_type=float_type, int_type=int_type, session=session)
+            a = tf.reduce_logsumexp(a, axis=axis)
+
+            return a
+
+
+def reduce_max(a, axis=None, mask=None, float_type=tf.float32, int_type=tf.int32, session=None):
+    session = get_session(session)
+    with session.as_default():
+        with session.graph.as_default():
+            a = infinity_mask(a, mask=mask, float_type=float_type, int_type=int_type, session=session)
+            a = tf.reduce_max(a, axis=axis)
+
+            return a
+
 class DenseLayer(object):
 
     def __init__(

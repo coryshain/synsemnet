@@ -100,7 +100,7 @@ def get_parse_ancestor_set(parse_labels):
     for s in parse_labels:
         for l in s:
             a = l.split('_')[-1]
-            if l in parse_ancestor_set:
+            if a in parse_ancestor_set:
                 parse_ancestor_set[a] += 1
             else:
                 parse_ancestor_set[a] = 1
@@ -109,6 +109,25 @@ def get_parse_ancestor_set(parse_labels):
     parse_ancestor_set = sorted(list(parse_ancestor_set.keys()), key=lambda x: (-parse_ancestor_set[x], x))
 
     return parse_ancestor_set
+
+
+def get_parse_depth_set(parse_labels):
+    parse_depth_set = {}
+    for s in parse_labels:
+        for l in s:
+            d = l.split('_')[0]
+            try:
+                d = int(d)
+            except ValueError:
+                d = 0
+            if d in parse_depth_set:
+                parse_depth_set[d] += 1
+            else:
+                parse_depth_set[d] = 1
+
+    parse_depth_set = sorted(list(parse_depth_set.keys()))
+
+    return parse_depth_set
 
 
 def get_sts_label_set(sts_labels):
@@ -206,7 +225,7 @@ def padded_concat(seqs, padding='pre', axis=0):
             else:
                 pad_cur = (0, 0)
             paddings.append(pad_cur)
-        out.append(np.pad(s, paddings))
+        out.append(np.pad(s, paddings, mode='constant'))
 
     out = np.concatenate(out, axis=axis)
 
@@ -386,6 +405,7 @@ class Dataset(object):
         self.pos_label_list = get_pos_label_set(pos_label)
         self.parse_label_list = get_parse_label_set(parse_label)
         self.parse_ancestor_list = get_parse_ancestor_set(parse_label)
+        self.parse_depth_rel_list = get_parse_depth_set(parse_label)
         self.sts_label_set = get_sts_label_set(sts_label)
 
         self.char_map = {c: i for i, c in enumerate(self.char_list)}
@@ -442,6 +462,7 @@ class Dataset(object):
     def cache_numeric_parsing_data(
             self,
             clip_vocab=None,
+            rel_depth=False,
             name='train',
             factor_parse_labels=True
     ):
@@ -463,7 +484,7 @@ class Dataset(object):
 
         self.files[name]['pos_label'] = self.symbols_to_padded_seqs('pos_label', name=name)
         if factor_parse_labels:
-            self.files[name]['parse_depth'] = self.symbols_to_padded_seqs('parse_depth', name=name)
+            self.files[name]['parse_depth'] = self.symbols_to_padded_seqs('parse_depth', rel_depth=rel_depth, name=name)
             self.files[name]['parse_label'] = self.symbols_to_padded_seqs('parse_ancestor', name=name)
         else:
             self.files[name]['parse_depth'] = None
@@ -472,8 +493,7 @@ class Dataset(object):
     def cache_numeric_sts_data(
             self,
             clip_vocab=None,
-            name='train',
-            factor_parse_labels=True
+            name='train'
     ):
         self.files[name]['sts_s1_text'], self.files[name]['sts_s1_text_mask'] = self.symbols_to_padded_seqs(
            'sts_s1_text',
@@ -535,29 +555,32 @@ class Dataset(object):
     def word_to_int(self, w):
         return self.word_map.get(w, 0)
 
-    def word_normalized_to_int(self, w):
-        return self.normalized_word_map.get(w, 0)
-
     def int_to_word(self, i):
         return self.word_list[i]
+
+    def word_normalized_to_int(self, w):
+        return self.normalized_word_map.get(w, 0)
 
     def int_to_word_normalized(self, i):
         return self.normalized_word_list[i]
 
     def pos_label_to_int(self, p):
-        return self.pos_label_map[p]
+        return self.pos_label_map.get(p, 0)
 
     def int_to_pos_label(self, i):
         return self.pos_label_list[i]
 
     def parse_label_to_int(self, l):
-        return self.parse_label_map[l]
+        return self.parse_label_map.get(l, 0)
 
     def int_to_parse_label(self, i):
-        return self.parse_label_list[i]
+        out = self.parse_label_list[i]
+        if out in ['NONE', '-BOS-', '-EOS-']:
+            out = '0_' + out
+        return out
 
     def parse_ancestor_to_int(self, a):
-        return self.parse_ancestor_map[a.split('_')[-1]]
+        return self.parse_ancestor_map.get(a.split('_')[-1], 0)
 
     def int_to_parse_ancestor(self, i):
         return self.parse_ancestor_list[i]
@@ -593,6 +616,7 @@ class Dataset(object):
             as_char=False,
             word_tokenized=True,
             char_tokenized=True,
+            rel_depth=False,
             return_mask=False
     ):
         data_type_tmp = data_type + '_src'
@@ -673,6 +697,8 @@ class Dataset(object):
         if data_type.lower().endswith('parse_depth'):
             final_depth = -out[..., :-1].sum(axis=-1)
             out[..., -1] = final_depth
+            if not rel_depth:
+                out = out.cumsum(axis=-1)
         if return_mask:
             mask = pad_sequence(mask)
 
