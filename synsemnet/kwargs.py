@@ -293,7 +293,7 @@ SYN_SEM_NET_KWARGS = [
     ),
     Kwarg(
         'parsing_relative_depth',
-        False,
+        True,
         bool,
         "Whether to predict relatve (vs. absolute) depth in the parsing task.",
     ),
