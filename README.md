@@ -24,7 +24,7 @@ bag-of-words tasks, while the semantic encoder gets ordinary gradients from the 
 domain adversarial gradients from the parsing and word position tasks. The goal is to obtain semantic encodings with
 little information about syntax and syntactic encodings with little information about semantics.
 
-## System Setup
+## Installation
 
 This repository requires Tensorflow (and all Tensorflow prereqs). All development work has been done using Python 3.
 Python 2 compatibility is possible but untested.
@@ -47,7 +47,7 @@ sentences from these datasets for training. We have provided a setup utility for
 
     python3 -m synsemnet.datasets.wsj.build -h
 
-## Fitting models
+## Fitting Models
 
 Model data and hyperparameters are defined in `*.ini` config files. For an example config file, see `ssn_model.ini`
 in the repository root. For a full description of all settings that can be controlled with the config file,
@@ -57,7 +57,7 @@ see the SynSemNet initialization params by running:
     
 Once you have defined an `*.ini` config file, fit the model by running the following from the repository root:
 
-   python3 -m synsemnet.bin.train <PATH>.ini
+    python3 -m synsemnet.bin.train <PATH>.ini
 
 ## Terminology
 
