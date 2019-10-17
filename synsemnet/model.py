@@ -476,7 +476,18 @@ class SynSemNet(object):
                                 setattr(self, 'sts_%s_%s' % (l, s), o[l])
                         elif task == 'bow':
                             # TODO
-                            pass
+                            module = self._initialize_bow_classifier(name=module_name)
+                            setattr(self,'bow_module_%s' % s, module)
+                            for text in ['parsing', 'sts_s1', 'sts_s2']:
+                                sent_enc_name = '%s_sent_encoding_%s' % (text, s)
+                                if s == 'sem':
+                                    sent_enc_name += '_adversarial'
+                                o = self._initialize_bow_outputs(
+                                    module,
+                                    getattr(self, sent_enc_name),
+                                )
+                                for l in ['logit', 'prediction']:
+                                    setattr(self, 'bow_%s_%s_%s' % (text, l, s), o[l])
                         else:
                             raise ValueError('Unrecognized task "%s".' % task)
 
@@ -557,9 +568,21 @@ class SynSemNet(object):
                             )
                             setattr(self, 'sts_loss_%s' % s, o['loss'])
                         elif task == 'bow':
-                            # TODO
-                            self.bow_loss_syn = tf.convert_to_tensor(0.)
-                            self.bow_loss_sem = tf.convert_to_tensor(0.)
+                            if s == 'sem':
+                                scale = self.bow_loss_scale
+                            else:
+                                scale = self.bow_adversarial_loss_scale
+                            for text in self.TEXT_TYPES:
+                                bow_logit_name = 'bow_%s_logit_%s' % (text, s)
+                                bow_target_name = '%s_bow_true' % text 
+                                o = self._initialize_bow_objective(
+                                         getattr(self, bow_target_name),
+                                         getattr(self, bow_logit_name),
+                                         nonzero_scale=scale
+                                    )
+                                setattr(self, 'bow_loss_%s' % s, o['loss'])
+                                self.bow_loss_syn = tf.convert_to_tensor(0.)
+                                self.bow_loss_sem = tf.convert_to_tensor(0.)
                         else:
                             raise ValueError('Unrecognized task "%s".' % task)
 
@@ -632,8 +655,12 @@ class SynSemNet(object):
                 self.parsing_char_mask = tf.placeholder(self.FLOAT_TF, shape=[None, None, None], name='parsing_char_mask')
                 self.parsing_words = tf.placeholder(self.INT_TF, shape=[None, None], name='parsing_words')
                 self.parsing_words_one_hot = tf.one_hot(self.parsing_words, self.target_vocab_size)
-                self.parsing_bow_true = tf.reduce_sum(self.parsing_words_one_hot, axis=-2)
                 self.parsing_word_mask = tf.cast(tf.reduce_any(self.parsing_char_mask > 0, axis=-1), dtype=self.FLOAT_TF)
+                self.parsing_masked_one_hots = tf.multiply(self.parsing_words_one_hot, self.parsing_word_mask)
+                self.parsing_bow_true_unnormed = tf.reduce_sum(self.parsing_masked_one_hots, axis=-2)
+                self.parsing_norm_consts = tf.reduce_sum(self.parsing_bow_true_unnormed, axis=-1)
+                self.parsing_bow_true = tf.div(self.parsing_bow_true_unnormed, tf.maximum(self.parsing_norm_consts[...,None], self.epsilon))
+
                 if self.character_embedding_dim:
                     self.parsing_char_embeddings_syn = tf.gather(self.char_embedding_matrix_syn, self.parsing_chars)
                     self.parsing_char_embeddings_sem = tf.gather(self.char_embedding_matrix_sem, self.parsing_chars)
@@ -667,8 +694,12 @@ class SynSemNet(object):
                 self.sts_s1_char_mask = tf.placeholder(self.FLOAT_TF, shape=[None, None, None], name='sts_s1_char_mask')
                 self.sts_s1_words = tf.placeholder(self.INT_TF, shape=[None, None], name='sts_s1_words')
                 self.sts_s1_words_one_hot = tf.one_hot(self.sts_s1_words, self.target_vocab_size)
-                self.sts_s1_bow_true = tf.reduce_sum(self.sts_s1_words_one_hot, axis=-2)
                 self.sts_s1_word_mask = tf.cast(tf.reduce_any(self.sts_s1_char_mask > 0, axis=-1), dtype=self.FLOAT_TF)
+                self.sts_s1_masked_one_hots = tf.multiply(self.sts_s1_words_one_hot, self.sts_s1_word_mask)
+                self.sts_s1_bow_true_unnormed = tf.reduce_sum(self.sts_s1_masked_one_hots, axis=-2)
+                self.sts_s1_norm_consts = tf.reduce_sum(self.sts_s1_bow_true_unnormed, axis=-1)
+                self.sts_s1_bow_true = tf.div(self.sts_s1_bow_true_unnormed, tf.maximum(self.sts_s1_norm_consts[...,None], self.epsilon))
+
                 if self.character_embedding_dim:
                     self.sts_s1_char_embeddings_syn = tf.gather(self.char_embedding_matrix_syn, self.sts_s1_chars)
                     self.sts_s1_char_embeddings_sem = tf.gather(self.char_embedding_matrix_sem, self.sts_s1_chars)
@@ -684,8 +715,12 @@ class SynSemNet(object):
                 self.sts_s2_char_mask = tf.placeholder(self.FLOAT_TF, shape=[None, None, None], name='sts_s2_char_mask')
                 self.sts_s2_words = tf.placeholder(self.INT_TF, shape=[None, None], name='sts_s2_words')
                 self.sts_s2_words_one_hot = tf.one_hot(self.sts_s2_words, self.target_vocab_size)
-                self.sts_s2_bow_true = tf.reduce_sum(self.sts_s2_words_one_hot, axis=-2)
                 self.sts_s2_word_mask = tf.cast(tf.reduce_any(self.sts_s2_char_mask > 0, axis=-1), dtype=self.FLOAT_TF)
+                self.sts_s2_masked_one_hots = tf.multiply(self.sts_s2_words_one_hot, self.sts_s2_word_mask)
+                self.sts_s2_bow_true_unnormed = tf.reduce_sum(self.sts_s2_masked_one_hots, axis=-2)
+                self.sts_s2_norm_consts = tf.reduce_sum(self.sts_s2_bow_true_unnormed, axis=-1)
+                self.sts_s2_bow_true = tf.div(self.sts_s2_bow_true_unnormed, tf.maximum(self.sts_s2_norm_consts[...,None], self.epsilon))
+
                 if self.character_embedding_dim:
                     self.sts_s2_char_embeddings_syn = tf.gather(self.char_embedding_matrix_syn, self.sts_s2_chars)
                     self.sts_s2_char_embeddings_sem = tf.gather(self.char_embedding_matrix_sem, self.sts_s2_chars)
@@ -703,6 +738,7 @@ class SynSemNet(object):
                     self.sts_label = tf.placeholder(self.INT_TF, shape=[None], name='sts_label')
                 else:
                     raise ValueError('Unrecognized sts_loss_type "%s".' % self.sts_loss_type)
+
 
     def _initialize_dense_module(
             self,
@@ -1365,6 +1401,33 @@ class SynSemNet(object):
 
                 return out
 
+    def _initialize_bow_classifier(self, name=None):
+        with self.sess.as_default():
+            with self.sess.graph.as_default():
+                outdim = self.target_vocab_size
+                bow_classifier = self._initialize_dense_module(
+                self.layers_bow_classifier + 1,
+                self.units_bow_classifier + [outdim],
+                activation=None,
+                activation_inner=self.bow_classifier_activation_inner,
+                resnet_n_layers_inner=self.bow_classifier_resnet_n_layers_inner,
+                name=name + '_classifier'
+                )
+                return bow_classifier
+
+
+    def _initialize_bow_outputs(self, bow_classifier, s):
+        #generates logit and prediction dict from sentence input
+        #s -> sentence encoding
+        with self.sess.as_default():
+            bow_logit = bow_classifier(s)
+            bow_prediction = tf.nn.softmax(bow_logit, axis=-1)
+            out = {
+                    'logit': bow_logit,
+                    'prediction': bow_prediction
+                  }
+        return out
+
     def _initialize_parsing_objective(
             self,
             pos_label_logit,
@@ -1551,6 +1614,21 @@ class SynSemNet(object):
                     'loss': loss
                 }
 
+                return out
+
+    def _initialize_bow_objective(self, label, logit, nonzero_scale=None):
+        with self.sess.as_default():
+            with self.sess.graph.as_default():
+                if nonzero_scale:
+                    if label is None:
+                        label = self.bow_label 
+                    loss = tf.losses.softmax_cross_entropy(
+                            label,
+                            logit
+                        )
+                else:
+                    loss = tf.convert_to_tensor(0.)
+                out = { 'loss': loss }
                 return out
 
     def _initialize_train_op(self):
