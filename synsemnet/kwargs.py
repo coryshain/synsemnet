@@ -433,7 +433,7 @@ SYN_SEM_NET_KWARGS = [
     ),
     Kwarg(
         'n_units_wp_decoder',
-        300,
+        None,
         [int, str, None],
         "Number of units to use in WP decoder layers. Can be an ``int``, which will be used for all layers, or a ``str`` with **n_layers_wp_decoder**  space-delimited integers, one for each layer in order from top to bottom. If ``None`` no recurrent WP decoder will be used, just a simple MLP classifier.",
         aliases=['n_units_decoder']
@@ -508,7 +508,7 @@ SYN_SEM_NET_KWARGS = [
     ),
     Kwarg(
         'n_units_wp_classifier',
-        300,
+        None,
         [int, str, None],
         "Number of units to use in hidden WP classifier layers. Can be an ``int``, which will be used for all layers, a ``str`` with **n_layers_wp_classifier** space-delimited integers, one for each layer in order from top to bottom, or ``None``, in which case a linear classifier (no hidden layers) will be used.",
         aliases=['n_units_classifier']
