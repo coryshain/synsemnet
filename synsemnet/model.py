@@ -479,7 +479,7 @@ class SynSemNet(object):
                             setattr(self,'bow_module_%s' % s, module)
                             for text in ['parsing', 'sts_s1', 'sts_s2']:
                                 sent_enc_name = '%s_sent_encoding_%s' % (text, s)
-                                if s == 'sem':
+                                if s == 'syn':
                                     sent_enc_name += '_adversarial'
                                 o = self._initialize_bow_outputs(
                                     module,
@@ -497,7 +497,6 @@ class SynSemNet(object):
                 #
                 #############################################################
 
-                # Parsing losses
                 for task in self.TASK_TYPES:
                     for s in self.REP_TYPES:
                         if task == 'parsing':
@@ -2091,7 +2090,7 @@ class SynSemNet(object):
                                 ]
                             if return_sem_bow_loss:
                                 values += [
-                                    ('bow', batch_dict['wp_loss_sem'])
+                                    ('bow', batch_dict['bow_loss_sem'])
                                 ]
                         pb.update(i + 1, values=values)
 
@@ -3190,12 +3189,6 @@ class SynSemNet(object):
             stderr(self.report_n_params())
             stderr('\n')
             stderr('*' * 100 + '\n\n')
-
-        data_feed = data.get_parsing_data_feed(
-            'train',
-            minibatch_size=32,
-            randomize=False
-        )
 
         with self.sess.as_default():
             with self.sess.graph.as_default():
