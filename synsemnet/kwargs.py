@@ -383,11 +383,81 @@ SYN_SEM_NET_KWARGS = [
         'sentence_aggregation',
         'final',
         str,
-        "Aggregation method for computing a sentence encoding from the word encoding matrix. One of ``['average', 'logsumexp', 'max', 'final']``. Applied dimension-wise over time (so e.g. ``'max'`` implements max pooling over time)",
+        "Aggregation method for computing a sentence encoding from the word encoding matrix. One of ``['average', 'logsumexp', 'max', 'final', 'rnn', 'bi_rnn']``. Applied dimension-wise over time (so e.g. ``'max'`` implements max pooling over time)",
         aliases=['sentence_aggregation']
     ),
 
-    # Parsing classifier settings
+    # Parsing decoder/classifier settings
+    Kwarg(
+        'parsing_decoder_type',
+        'rnn',
+        str,
+        "Parsing decoder network type to use. One of ``['cnn', 'rnn']``.",
+    ),
+    Kwarg(
+        'n_layers_parsing_decoder',
+        None,
+        [int, None],
+        "Number of layers to use for parsing decoder. If ``None``, inferred from length of **n_units_parsing_decoder**.",
+        aliases=['n_layers_decoder']
+    ),
+    Kwarg(
+        'n_units_parsing_decoder',
+        None,
+        [int, str, None],
+        "Number of units to use in parsing decoder layers. Can be an ``int``, which will be used for all layers, a ``str`` with **n_layers_parsing_decoder**  space-delimited integers, one for each layer in order from top to bottom, or ``None``, in which case no parsing decoder will be used (parsing features will be computed deterministically from aggregated encodings).",
+        aliases=['n_units_decoder']
+    ),
+    Kwarg(
+        'parsing_conv_kernel_size',
+        1,
+        [int, str],
+        "Size of kernel to use in convolutional parsing decoder layers. Can be an ``int``, which will be used for all layers, or a ``str`` with **parsing_n_layers_decoder**  space-delimited integers, one for each layer in order from top to bottom. Ignored unless **parsing_decoder_type** is ``cnn``.",
+        aliases=['conv_kernel_size']
+    ),
+    Kwarg(
+        'bidirectional_parsing_decoder',
+        True,
+        bool,
+        "Use bi-directional parsing decoder. Ignored unless **parsing_decoder_type** is ``rnn``."
+    ),
+    Kwarg(
+        'parsing_decoder_activation',
+        'tanh',
+        [str, None],
+        "Name of activation to use at the output of the parsing decoder.",
+    ),
+    Kwarg(
+        'parsing_decoder_recurrent_activation',
+        'sigmoid',
+        [str, None],
+        "Name of activation to use for parsing decoder recurrent gates. Ignored unless **parsing_decoder_type** is ``rnn``.",
+    ),
+    Kwarg(
+        'parsing_decoder_activation_inner',
+        'tanh',
+        [str, None],
+        "Name of activation to use for prefinal layers in the parsing decoder.",
+    ),
+    Kwarg(
+        'parsing_projection_activation_inner',
+        'tanh',
+        [str, None],
+        "Name of activation to use for prefinal layers in projection function of parsing decoder.",
+    ),
+    Kwarg(
+        'project_parsing_decodings',
+        False,
+        bool,
+        "Whether to apply a linear projection at the output of the parsing decoder. Ignored unless **parsing_decoder_type** is ``rnn``."
+    ),
+    Kwarg(
+        'parsing_decoder_resnet_n_layers_inner',
+        None,
+        [int, None],
+        "Implement internal parsing decoder layers as residual layers with **parsing_decoder_resnet_n_layers_inner** internal layers each. If ``None``, do not use residual layers.",
+        aliases=['resnet_n_layers_inner']
+    ),
     Kwarg(
         'residual_parser',
         True,
@@ -430,6 +500,12 @@ SYN_SEM_NET_KWARGS = [
         [int, None],
         "Number of layers to use for WP decoder. If ``None``, inferred from length of **n_units_wp_decoder**.",
         aliases=['n_layers_decoder']
+    ),
+    Kwarg(
+        'parsing_add_sent_as_input',
+        False,
+        bool,
+        "Concatenate sentence encoding to word encodings in input to parser.",
     ),
     Kwarg(
         'n_units_wp_decoder',
@@ -531,7 +607,7 @@ SYN_SEM_NET_KWARGS = [
     # STS decoder/classifier settings
     Kwarg(
         'sts_decoder_type',
-        'cnn',
+        'rnn',
         str,
         "STS decoder network type to use. One of ``['cnn', 'rnn']``.",
     ),

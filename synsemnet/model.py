@@ -100,6 +100,20 @@ class SynSemNet(object):
         assert len(self.units_encoder) == self.layers_encoder, 'Misalignment in number of layers between n_layers_encoder and n_units_encoder.'
 
         # Parsing classifier layers and units
+        self.use_parsing_decoder = True
+        if self.n_units_parsing_decoder is None:
+            self.units_parsing_decoder = []
+            self.use_parsing_decoder = False
+        elif isinstance(self.n_units_parsing_decoder, str):
+            self.units_parsing_decoder = [int(x) for x in self.n_units_parsing_decoder.split()]
+        elif isinstance(self.n_units_parsing_decoder, int):
+            if self.n_layers_parsing_decoder is None:
+                self.units_parsing_decoder = [self.n_units_parsing_decoder]
+            else:
+                self.units_parsing_decoder = [self.n_units_parsing_decoder] * self.n_layers_parsing_decoder
+        else:
+            self.units_parsing_decoder = self.n_units_parsing_decoder
+            
         if self.n_units_parsing_classifier is None:
             self.units_parsing_classifier = []
         elif isinstance(self.n_units_parsing_classifier, str):
@@ -322,6 +336,23 @@ class SynSemNet(object):
                     )
                     setattr(self, name, val)
 
+                    if self.sentence_aggregation.lower().endswith('rnn'):
+                        name = 'sent_encoder_%s' % s
+                        bidirectional = self.sentence_aggregation.lower().startswith('bi_')
+                        val = self._initialize_rnn_module(
+                            1,
+                            self.units_encoder,
+                            activation=self.encoder_activation,
+                            recurrent_activation=self.encoder_recurrent_activation,
+                            bidirectional=bidirectional,
+                            project_encodings=self.project_encodings,
+                            projection_activation_inner=self.encoder_projection_activation_inner,
+                            resnet_n_layers_inner=self.encoder_resnet_n_layers_inner,
+                            return_sequences=False,
+                            name=name
+                        )
+                        setattr(self, name, val)
+
 
                 #############################################################
                 #
@@ -329,7 +360,6 @@ class SynSemNet(object):
                 #
                 #############################################################
 
-                # Parsing encodings
                 for text in self.TEXT_TYPES:
                     for enc in self.ENCODING_LEVELS:
                         for s in self.REP_TYPES:
@@ -368,7 +398,10 @@ class SynSemNet(object):
                                     elif enc == 'sent_encoding':
                                         word_enc_name = '%s_word_encodings_%s' % (text, s)
                                         mask_name = '%s_word_mask' % text
-                                        method = self.sentence_aggregation
+                                        if self.sentence_aggregation.lower().endswith('rnn'):
+                                            method = getattr(self, 'sent_encoder_%s' % s)
+                                        else:
+                                            method = self.sentence_aggregation
                                         val = self._aggregate_words(
                                             getattr(self, word_enc_name),
                                             mask=getattr(self, mask_name),
@@ -392,8 +425,28 @@ class SynSemNet(object):
                             word_enc_name = 'parsing_word_encodings_%s' % s
                             if s == 'sem':
                                 word_enc_name += '_adversarial'
+                            if self.use_parsing_decoder:
+                                parsing_decoder = self._initialize_parsing_decoder(name=module_name)
+                                if self.parsing_decoder_type.lower() == 'rnn':
+                                    parsing_input = parsing_decoder(s1, mask=self.parsing_s1_word_mask)
+                                elif self.parsing_decoder_type.lower() == 'cnn':
+                                    parsing_input = parsing_decoder(s1)
+                                else:
+                                    raise ValueError('Unrecognized parsing_decoder_type "%s".' % self.parsing_decoder_type)
+                            else:
+                                parsing_input = getattr(self, word_enc_name)
+                            if self.parsing_add_sent_as_input:
+                                sent_input = getattr(self, 'parsing_sent_encoding_%s' % s)
+                                sent_input = tf.expand_dims(sent_input, axis=-2)
+                                tile_ix = [1, tf.shape(parsing_input)[-2], 1]
+                                sent_input = tf.tile(
+                                    sent_input,
+                                    tile_ix
+                                )
+                                parsing_input = tf.concat([parsing_input, sent_input], axis=-2)
+
                             o = self._initialize_parsing_outputs(
-                                getattr(self, word_enc_name),
+                                parsing_input,
                                 residual_parser=self.residual_parser,
                                 name=module_name
                             )
@@ -446,7 +499,7 @@ class SynSemNet(object):
                             s1 = getattr(self, s1_enc_name)
                             s2 = getattr(self, s2_enc_name)
                             if self.use_sts_decoder:
-                                sts_decoder = self._initialize_sts_decoder(name='module_name')
+                                sts_decoder = self._initialize_sts_decoder(name=module_name)
                                 if self.sts_decoder_type.lower() == 'rnn':
                                     s1 = sts_decoder(s1, mask=self.sts_s1_word_mask)
                                     s2 = sts_decoder(s2, mask=self.sts_s2_word_mask)
@@ -456,16 +509,8 @@ class SynSemNet(object):
                                 else:
                                     raise ValueError('Unrecognized sts_decoder_type "%s".' % self.sts_decoder_type)
                             else:
-                                s1 = self._aggregate_words(
-                                    s1,
-                                    mask=self.sts_s1_word_mask,
-                                    method=self.sentence_aggregation
-                                )
-                                s2 = self._aggregate_words(
-                                    s2,
-                                    mask=self.sts_s2_word_mask,
-                                    method=self.sentence_aggregation
-                                )
+                                s1 = getattr(self, 'sts_s1_sent_encoding_%s' % s)
+                                s2 = getattr(self, 'sts_s2_sent_encoding_%s' % s)
                             o = self._initialize_sts_outputs(
                                 s1,
                                 s2,
@@ -1016,7 +1061,9 @@ class SynSemNet(object):
     def _aggregate_words(self, word_encodings, mask=None, method='final'):
         with self.sess.as_default():
             with self.sess.graph.as_default():
-                if method.lower() == 'average':
+                if not isinstance(method, str):
+                    out = method(word_encodings, mask=mask)
+                elif method.lower() == 'average':
                     if mask is None:
                         out = tf.reduce_mean(word_encodings, axis=-2)
                     else:
@@ -1045,6 +1092,46 @@ class SynSemNet(object):
                     raise ValueError('Unrecognized aggregation method "%s".' % method)
 
                 return out
+
+    def _initialize_parsing_decoder(self, name=None):
+        with self.sess.as_default():
+            with self.sess.graph.as_default():
+                # Define some new tensors for parsing prediction from encodings.
+                if name is None:
+                    name = 'parsing'
+
+                if self.parsing_decoder_type.lower() == 'cnn':
+                    parsing_decoder = self._initialize_cnn_module(
+                        self.layers_parsing_decoder,
+                        self.parsing_kernel_size,
+                        self.units_parsing_decoder,
+                        activation=self.parsing_decoder_activation,
+                        activation_inner=self.parsing_decoder_activation_inner,
+                        padding='same',
+                        project_encodings=self.project_parsing_decodings,
+                        projection_activation_inner=self.parsing_projection_activation_inner,
+                        resnet_n_layers_inner=self.parsing_decoder_resnet_n_layers_inner,
+                        max_pooling_over_time=True,
+                        name=name + '_decoder'
+                    )
+                elif self.parsing_decoder_type.lower() == 'rnn':
+                    parsing_decoder = self._initialize_rnn_module(
+                        self.layers_parsing_decoder,
+                        self.units_parsing_decoder,
+                        bidirectional=self.bidirectional_parsing_decoder,
+                        activation=self.parsing_decoder_activation,
+                        activation_inner=self.parsing_decoder_activation_inner,
+                        recurrent_activation=self.parsing_decoder_recurrent_activation,
+                        project_encodings=self.project_parsing_decodings,
+                        projection_activation_inner=self.parsing_projection_activation_inner,
+                        resnet_n_layers_inner=self.parsing_decoder_resnet_n_layers_inner,
+                        return_sequences=False,
+                        name=name + '_decoder'
+                    )
+                else:
+                    raise ValueError('Unrecognized parsing decoder type "%s".' % self.parsing_decoder_type)
+
+                return parsing_decoder
 
     def _initialize_parsing_outputs(self, s, residual_parser=True, name=None):
         with self.sess.as_default():
