@@ -1043,7 +1043,6 @@ class Dataset(object):
 
         return words, pos, label
 
-
     def parse_predictions_to_table(self, numeric_chars, numeric_pos, numeric_label, numeric_depth=None, mask=None):
         words, pos, label = self.parse_predictions_to_sequences(
             numeric_chars,

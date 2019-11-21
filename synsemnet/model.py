@@ -241,8 +241,7 @@ class SynSemNet(object):
         if len(self.units_bow_classifier) == 1:
             self.units_bow_classifier = [self.units_bow_classifier[0]] * self.layers_bow_classifier
 
-        assert len(
-            self.units_bow_classifier) == self.layers_bow_classifier, 'Misalignment in number of layers between n_layers_bow_classifier and n_units_bow_classifier.'
+        assert len(self.units_bow_classifier) == self.layers_bow_classifier, 'Misalignment in number of layers between n_layers_bow_classifier and n_units_bow_classifier.'
         
         self.predict_mode = False
 
@@ -476,7 +475,6 @@ class SynSemNet(object):
                             for l in ['logit', 'prediction']:
                                 setattr(self, 'sts_%s_%s' % (l, s), o[l])
                         elif task == 'bow':
-                            # TODO
                             module = self._initialize_bow_classifier(name=module_name)
                             setattr(self,'bow_module_%s' % s, module)
                             for text in ['parsing', 'sts_s1', 'sts_s2']:
@@ -581,9 +579,12 @@ class SynSemNet(object):
                                          getattr(self, bow_logit_name),
                                          nonzero_scale=scale
                                     )
-                                setattr(self, 'bow_loss_%s' % s, o['loss'])
-                                self.bow_loss_syn = tf.convert_to_tensor(0.)
-                                self.bow_loss_sem = tf.convert_to_tensor(0.)
+                                setattr(self, 'bow_%s_loss_%s' % (text, s), o['loss'])
+                            setattr(
+                                self,
+                                'bow_loss_%s' % s,
+                                sum([getattr(self, 'bow_%s_loss_%s' % (text, s)) for text in self.TEXT_TYPES])
+                            )
                         else:
                             raise ValueError('Unrecognized task "%s".' % task)
 
@@ -657,7 +658,7 @@ class SynSemNet(object):
                 self.parsing_words = tf.placeholder(self.INT_TF, shape=[None, None], name='parsing_words')
                 self.parsing_words_one_hot = tf.one_hot(self.parsing_words, self.target_vocab_size)
                 self.parsing_word_mask = tf.cast(tf.reduce_any(self.parsing_char_mask > 0, axis=-1), dtype=self.FLOAT_TF)
-                self.parsing_masked_one_hots = tf.multiply(self.parsing_words_one_hot, self.parsing_word_mask)
+                self.parsing_masked_one_hots = tf.multiply(self.parsing_words_one_hot, self.parsing_word_mask[..., None])
                 self.parsing_bow_true_unnormed = tf.reduce_sum(self.parsing_masked_one_hots, axis=-2)
                 self.parsing_norm_consts = tf.reduce_sum(self.parsing_bow_true_unnormed, axis=-1)
                 self.parsing_bow_true = tf.div(self.parsing_bow_true_unnormed, tf.maximum(self.parsing_norm_consts[...,None], self.epsilon))
@@ -696,7 +697,7 @@ class SynSemNet(object):
                 self.sts_s1_words = tf.placeholder(self.INT_TF, shape=[None, None], name='sts_s1_words')
                 self.sts_s1_words_one_hot = tf.one_hot(self.sts_s1_words, self.target_vocab_size)
                 self.sts_s1_word_mask = tf.cast(tf.reduce_any(self.sts_s1_char_mask > 0, axis=-1), dtype=self.FLOAT_TF)
-                self.sts_s1_masked_one_hots = tf.multiply(self.sts_s1_words_one_hot, self.sts_s1_word_mask)
+                self.sts_s1_masked_one_hots = tf.multiply(self.sts_s1_words_one_hot, self.sts_s1_word_mask[..., None])
                 self.sts_s1_bow_true_unnormed = tf.reduce_sum(self.sts_s1_masked_one_hots, axis=-2)
                 self.sts_s1_norm_consts = tf.reduce_sum(self.sts_s1_bow_true_unnormed, axis=-1)
                 self.sts_s1_bow_true = tf.div(self.sts_s1_bow_true_unnormed, tf.maximum(self.sts_s1_norm_consts[...,None], self.epsilon))
@@ -717,7 +718,7 @@ class SynSemNet(object):
                 self.sts_s2_words = tf.placeholder(self.INT_TF, shape=[None, None], name='sts_s2_words')
                 self.sts_s2_words_one_hot = tf.one_hot(self.sts_s2_words, self.target_vocab_size)
                 self.sts_s2_word_mask = tf.cast(tf.reduce_any(self.sts_s2_char_mask > 0, axis=-1), dtype=self.FLOAT_TF)
-                self.sts_s2_masked_one_hots = tf.multiply(self.sts_s2_words_one_hot, self.sts_s2_word_mask)
+                self.sts_s2_masked_one_hots = tf.multiply(self.sts_s2_words_one_hot, self.sts_s2_word_mask[..., None])
                 self.sts_s2_bow_true_unnormed = tf.reduce_sum(self.sts_s2_masked_one_hots, axis=-2)
                 self.sts_s2_norm_consts = tf.reduce_sum(self.sts_s2_bow_true_unnormed, axis=-1)
                 self.sts_s2_bow_true = tf.div(self.sts_s2_bow_true_unnormed, tf.maximum(self.sts_s2_norm_consts[...,None], self.epsilon))
@@ -1728,6 +1729,8 @@ class SynSemNet(object):
                 self.wp_eval_log_entries = self._initialize_wp_eval_log_entries()
                 self.sts_loss_log_entries = self._initialize_sts_loss_log_entries()
                 self.sts_eval_log_entries = self._initialize_sts_eval_log_entries()
+                self.bow_loss_log_entries = self._initialize_bow_loss_log_entries()
+                self.bow_eval_log_entries = self._initialize_bow_eval_log_entries()
 
                 self.parsing_loss_log_summaries = self._initialize_log_summaries(
                     self.parsing_loss_log_entries,
@@ -1753,6 +1756,14 @@ class SynSemNet(object):
                     self.sts_eval_log_entries,
                     collection='sts_eval'
                 )
+                self.bow_loss_log_summaries = self._initialize_log_summaries(
+                    self.bow_loss_log_entries,
+                    collection='bow_loss'
+                )
+                self.bow_eval_log_summaries = self._initialize_log_summaries(
+                    self.bow_eval_log_entries,
+                    collection='bow_eval'
+                )
 
                 self.parsing_loss_summary = tf.summary.merge_all(key='parsing_loss')
                 self.parsing_eval_summary = tf.summary.merge_all(key='parsing_eval')
@@ -1760,8 +1771,8 @@ class SynSemNet(object):
                 self.wp_eval_summary = tf.summary.merge_all(key='wp_eval')
                 self.sts_loss_summary = tf.summary.merge_all(key='sts_loss')
                 self.sts_eval_summary = tf.summary.merge_all(key='sts_eval')
-
-                # TODO: Cory, add BOW logging
+                self.bow_loss_summary = tf.summary.merge_all(key='bow_loss')
+                self.bow_eval_summary = tf.summary.merge_all(key='bow_eval')
 
     def _initialize_parsing_loss_log_entries(self):
         out = [
@@ -1796,6 +1807,12 @@ class SynSemNet(object):
 
     def _initialize_sts_eval_log_entries(self):
         return ['sts_r']
+
+    def _initialize_bow_loss_log_entries(self):
+        return ['bow_loss']
+
+    def _initialize_bow_eval_log_entries(self):
+        return []
 
     def _initialize_log_summaries(self, log_entries, collection=None):
         with self.sess.as_default():
@@ -1864,10 +1881,6 @@ class SynSemNet(object):
         else:
             log_freq = np.inf
 
-        evaluate = ((i + 1) % eval_freq == 0) and (i > self.n_pretrain_steps)
-        save = evaluate or ((i + 1) % save_freq == 0)
-        log = (i + 1) % log_freq == 0
-
         if save_freq:
             next_save = save_freq - (i % save_freq)
         else:
@@ -1905,14 +1918,21 @@ class SynSemNet(object):
             info_dict=None,
             update=False,
             return_syn_parsing_loss=False,
-            return_syn_wp_loss=False,
-            return_sem_sts_loss=False,
+            return_sem_parsing_loss=False,
             return_syn_parsing_prediction=False,
             return_sem_parsing_prediction=False,
+            return_syn_wp_loss=False,
+            return_sem_wp_loss=False,
             return_syn_wp_prediction=False,
             return_sem_wp_prediction=False,
+            return_syn_sts_loss=False,
+            return_sem_sts_loss=False,
             return_syn_sts_prediction=False,
             return_sem_sts_prediction=False,
+            return_syn_bow_loss=False,
+            return_sem_bow_loss=False,
+            return_syn_bow_prediction=False,
+            return_sem_bow_prediction=False,
             verbose=True
     ):
         if info_dict is None:
@@ -1961,6 +1981,10 @@ class SynSemNet(object):
 
                     if data_type.lower() in ['parsing', 'both']:
                         parsing_text_batch = batch['parsing_text']
+                        if not 'n_parsing' in info_dict:
+                            info_dict['n_parsing'] = len(parsing_text_batch)
+                        else:
+                            info_dict['n_parsing'] += len(parsing_text_batch)
                         parsing_normalized_text_batch = batch['parsing_normalized_text']
                         parsing_text_mask_batch = batch['parsing_text_mask']
                         pos_label_batch = batch['pos_label']
@@ -1991,9 +2015,17 @@ class SynSemNet(object):
                             fd_minibatch[self.parse_depth_src] = parse_depth_batch
                     if data_type.lower() in ['sts', 'both']:
                         sts_s1_text_batch = batch['sts_s1_text']
+                        if not 'n_sts_s1' in info_dict:
+                            info_dict['n_sts_s1'] = len(sts_s1_text_batch)
+                        else:
+                            info_dict['n_sts_s1'] += len(sts_s1_text_batch)
                         sts_s1_normalized_text_batch = batch['sts_s1_normalized_text']
                         sts_s1_text_mask_batch = batch['sts_s1_text_mask']
                         sts_s2_text_batch = batch['sts_s2_text']
+                        if not 'n_sts_s2' in info_dict:
+                            info_dict['n_sts_s2'] = len(sts_s2_text_batch)
+                        else:
+                            info_dict['n_sts_s2'] += len(sts_s2_text_batch)
                         sts_s2_normalized_text_batch = batch['sts_s2_normalized_text']
                         sts_s2_text_mask_batch = batch['sts_s2_text_mask']
                         sts_label_batch = batch['sts_label']
@@ -2032,7 +2064,6 @@ class SynSemNet(object):
                         batch_dict[to_run_names[j]] = x
 
                     for k in batch_dict:
-                        # if 'loss' in k or 'acc' in k:
                         if 'loss' in k:
                             info_dict[k] += batch_dict[k]
                         elif 'prediction' in k:
@@ -2057,6 +2088,10 @@ class SynSemNet(object):
                             if return_syn_wp_loss:
                                 values += [
                                     ('wp', batch_dict['wp_loss_syn'])
+                                ]
+                            if return_sem_bow_loss:
+                                values += [
+                                    ('bow', batch_dict['wp_loss_sem'])
                                 ]
                         pb.update(i + 1, values=values)
 
@@ -2132,6 +2167,16 @@ class SynSemNet(object):
             sem=return_sem_sts_prediction
         )
 
+        bow_loss_tensors, bow_loss_tensor_names = self._get_bow_loss_tensors(
+            syn=return_syn_bow_loss,
+            sem=return_sem_bow_loss
+        )
+
+        bow_prediction_tensors, bow_prediction_tensor_names = self._get_bow_prediction_tensors(
+            syn=return_syn_bow_prediction,
+            sem=return_sem_bow_prediction
+        )
+
         info_dict = {}
 
         if update:
@@ -2154,14 +2199,18 @@ class SynSemNet(object):
                       wp_loss_tensors + \
                       wp_prediction_tensors + \
                       sts_loss_tensors + \
-                      sts_prediction_tensors
+                      sts_prediction_tensors + \
+                      bow_loss_tensors + \
+                      bow_prediction_tensors
 
             to_run_names += parsing_loss_tensor_names + \
                             parsing_prediction_tensor_names + \
                             wp_loss_tensor_names + \
                             wp_prediction_tensor_names + \
                             sts_loss_tensor_names + \
-                            sts_prediction_tensor_names
+                            sts_prediction_tensor_names + \
+                            bow_loss_tensor_names + \
+                            bow_prediction_tensor_names
 
             data_feed = data.get_training_data_feed(
                 data_name,
@@ -2181,14 +2230,21 @@ class SynSemNet(object):
                 info_dict=info_dict,
                 update=update,
                 return_syn_parsing_loss=return_syn_parsing_losses,
-                return_syn_wp_loss=return_syn_wp_loss,
-                return_sem_sts_loss=return_sem_sts_loss,
+                return_sem_parsing_loss=return_sem_parsing_losses,
                 return_syn_parsing_prediction=return_syn_parsing_prediction,
                 return_sem_parsing_prediction=return_sem_parsing_prediction,
+                return_syn_wp_loss=return_syn_wp_loss,
+                return_sem_wp_loss=return_sem_wp_loss,
                 return_syn_wp_prediction=return_syn_wp_prediction,
                 return_sem_wp_prediction=return_sem_wp_prediction,
+                return_syn_sts_loss=return_syn_sts_loss,
+                return_sem_sts_loss=return_sem_sts_loss,
                 return_syn_sts_prediction=return_syn_sts_prediction,
                 return_sem_sts_prediction=return_sem_sts_prediction,
+                return_syn_bow_loss=return_syn_bow_loss,
+                return_sem_bow_loss=return_sem_bow_loss,
+                return_syn_bow_prediction=return_syn_bow_prediction,
+                return_sem_bow_prediction=return_sem_bow_prediction,
                 verbose=verbose
             )
         else:
@@ -2201,14 +2257,26 @@ class SynSemNet(object):
                 syn=return_syn_wp_prediction,
                 sem=return_sem_wp_prediction
             )
+            bow_parsing_loss_tensors, bow_parsing_loss_tensor_names = self._get_bow_parsing_loss_tensors(
+                syn=return_syn_bow_loss,
+                sem=return_sem_bow_loss
+            )
+            bow_parsing_prediction_tensors, bow_parsing_prediction_tensor_names = self._get_bow_parsing_prediction_tensors(
+                syn=return_syn_bow_prediction,
+                sem=return_sem_bow_prediction
+            )
             parsing_tensors = parsing_loss_tensors + \
                               parsing_prediction_tensors + \
                               wp_parsing_loss_tensors + \
-                              wp_parsing_prediction_tensors
+                              wp_parsing_prediction_tensors + \
+                              bow_parsing_loss_tensors + \
+                              bow_parsing_prediction_tensors
             parsing_tensor_names = parsing_loss_tensor_names + \
                                    parsing_prediction_tensor_names + \
                                    wp_parsing_loss_tensor_names + \
-                                   wp_parsing_prediction_tensor_names
+                                   wp_parsing_prediction_tensor_names + \
+                                   bow_parsing_loss_tensor_names + \
+                                   bow_parsing_prediction_tensor_names
             if len(parsing_tensors) > 0:
                 if verbose:
                     stderr('Extracting parse predictions...\n')
@@ -2238,9 +2306,9 @@ class SynSemNet(object):
                     update=update,
                     return_syn_parsing_loss=return_syn_parsing_losses,
                     return_syn_parsing_prediction=return_syn_parsing_prediction,
+                    return_sem_parsing_prediction=return_sem_parsing_prediction,
                     return_syn_wp_prediction=return_syn_wp_prediction,
                     return_sem_wp_prediction=return_sem_wp_prediction,
-                    return_sem_parsing_prediction=return_sem_parsing_prediction,
                     verbose=verbose
                 )
 
@@ -2253,14 +2321,26 @@ class SynSemNet(object):
                 syn=return_syn_wp_prediction,
                 sem=return_sem_wp_prediction
             )
+            bow_sts_loss_tensors, bow_sts_loss_tensor_names = self._get_bow_sts_loss_tensors(
+                syn=return_syn_bow_loss,
+                sem=return_sem_bow_loss
+            )
+            bow_sts_prediction_tensors, bow_sts_prediction_tensor_names = self._get_bow_sts_prediction_tensors(
+                syn=return_syn_bow_prediction,
+                sem=return_sem_bow_prediction
+            )
             sts_tensors = sts_loss_tensors + \
                           sts_prediction_tensors + \
                           wp_sts_loss_tensors + \
-                          wp_sts_prediction_tensors
+                          wp_sts_prediction_tensors + \
+                          bow_sts_loss_tensors + \
+                          bow_sts_prediction_tensors
             sts_tensor_names = sts_loss_tensor_names + \
                                sts_prediction_tensor_names + \
                                wp_sts_loss_tensor_names + \
-                               wp_sts_prediction_tensor_names
+                               wp_sts_prediction_tensor_names + \
+                               bow_sts_loss_tensor_names + \
+                               bow_sts_prediction_tensor_names
             if len(sts_tensors) > 0:
                 if verbose:
                     stderr('Extracting STS predictions...\n')
@@ -2290,10 +2370,10 @@ class SynSemNet(object):
                     info_dict=info_dict,
                     update=update,
                     return_sem_sts_loss=return_sem_sts_loss,
-                    return_syn_wp_prediction=return_syn_wp_prediction,
-                    return_sem_wp_prediction=return_sem_wp_prediction,
                     return_syn_sts_prediction=return_syn_sts_prediction,
                     return_sem_sts_prediction=return_sem_sts_prediction,
+                    return_syn_bow_loss=return_syn_bow_loss,
+                    return_sem_bow_loss=return_sem_bow_loss,
                     verbose=verbose
                 )
 
@@ -2306,21 +2386,6 @@ class SynSemNet(object):
                 if 'wp_sts_s2_loss_syn' in info_dict:
                     wp_loss_syn += info_dict['wp_sts_s2_loss_syn']
                 info_dict['wp_loss_syn'] = wp_loss_syn
-                
-                wp_acc_syn = 0.
-                n = 0
-                if 'wp_parsing_acc_syn' in info_dict:
-                    n += info_dict['wp_parsing_n_syn']
-                    wp_acc_syn += info_dict['wp_parsing_acc_syn'] * info_dict['wp_parsing_n_syn']
-                if 'wp_sts_s1_acc_syn' in info_dict:
-                    n += info_dict['wp_sts_s1_n_syn']
-                    wp_acc_syn += info_dict['wp_sts_s1_acc_syn'] * info_dict['wp_sts_s1_n_syn']
-                if 'wp_sts_s2_acc_syn' in info_dict:
-                    n += info_dict['wp_sts_s2_n_syn']
-                    wp_acc_syn += info_dict['wp_sts_s2_acc_syn'] * info_dict['wp_sts_s1_n_syn']
-
-                wp_acc_syn = wp_acc_syn / np.maximum(n, self.epsilon)
-                info_dict['wp_acc_syn'] = wp_acc_syn
 
             if return_sem_wp_loss:
                 wp_loss_sem = 0.
@@ -2332,20 +2397,35 @@ class SynSemNet(object):
                     wp_loss_sem += info_dict['wp_sts_s2_loss_sem']
                 info_dict['wp_loss_sem'] = wp_loss_sem
 
-                wp_acc_sem = 0.
+            if return_syn_bow_loss:
+                bow_loss_syn = 0.
                 n = 0
-                if 'wp_parsing_acc_sem' in info_dict:
-                    n += info_dict['wp_parsing_n_sem']
-                    wp_acc_sem += info_dict['wp_parsing_acc_sem'] * info_dict['wp_parsing_n_sem']
-                if 'wp_sts_s1_acc_sem' in info_dict:
-                    n += info_dict['wp_sts_s1_n_sem']
-                    wp_acc_sem += info_dict['wp_sts_s1_acc_sem'] * info_dict['wp_sts_s1_n_sem']
-                if 'wp_sts_s2_acc_sem' in info_dict:
-                    n += info_dict['wp_sts_s2_n_sem']
-                    wp_acc_sem += info_dict['wp_sts_s2_acc_sem'] * info_dict['wp_sts_s1_n_sem']
+                if 'bow_parsing_loss_syn' in info_dict:
+                    n += 1
+                    bow_loss_syn += info_dict['bow_parsing_loss_syn']
+                if 'bow_sts_s1_loss_syn' in info_dict:
+                    n += 1
+                    bow_loss_syn += info_dict['bow_sts_s1_loss_syn']
+                if 'bow_sts_s2_loss_syn' in info_dict:
+                    n += 1
+                    bow_loss_syn += info_dict['bow_sts_s2_loss_syn']
+                bow_loss_syn = bow_loss_syn / np.maximum(n, self.epsilon)
+                info_dict['bow_loss_syn'] = bow_loss_syn
 
-                wp_acc_sem = wp_acc_sem / np.maximum(n, self.epsilon)
-                info_dict['wp_acc_sem'] = wp_acc_sem
+            if return_sem_bow_loss:
+                bow_loss_sem = 0.
+                n = 0
+                if 'bow_parsing_loss_sem' in info_dict:
+                    n += 1
+                    bow_loss_sem += info_dict['bow_parsing_loss_sem']
+                if 'bow_sts_s1_loss_sem' in info_dict:
+                    n += 1
+                    bow_loss_sem += info_dict['bow_sts_s1_loss_sem']
+                if 'bow_sts_s2_loss_sem' in info_dict:
+                    n += 1
+                    bow_loss_sem += info_dict['bow_sts_s2_loss_sem']
+                bow_loss_sem = bow_loss_sem / np.maximum(n, self.epsilon)
+                info_dict['bow_loss_sem'] = bow_loss_sem
 
         return info_dict
 
@@ -2608,6 +2688,106 @@ class SynSemNet(object):
 
         return tensors, tensor_names
 
+    def _get_bow_loss_tensors(self, syn=True, sem=True):
+        tensors = []
+        tensor_names = []
+        if syn:
+            # Get BOW loss tensors and names from syntactic encoder
+            tensors += [
+                self.bow_parsing_loss_syn,
+                self.bow_sts_s1_loss_syn,
+                self.bow_sts_s2_loss_syn,
+                self.bow_loss_syn
+            ]
+            tensor_names += [
+                'bow_parsing_loss_syn',
+                'bow_sts_s1_loss_syn',
+                'bow_sts_s2_loss_syn',
+                'bow_loss_syn'
+            ]
+        if sem:
+            # Get BOW loss tensors and names from semantic encoder
+            tensors += [
+                self.bow_parsing_loss_sem,
+                self.bow_sts_s1_loss_sem,
+                self.bow_sts_s2_loss_sem,
+                self.bow_loss_sem
+            ]
+            tensor_names += [
+                'bow_parsing_loss_sem',
+                'bow_sts_s1_loss_sem',
+                'bow_sts_s2_loss_sem',
+                'bow_loss_sem'
+            ]
+
+        return tensors, tensor_names
+
+    def _get_bow_prediction_tensors(self, syn=True, sem=True):
+        tensors = []
+        tensor_names = []
+
+        return tensors, tensor_names
+
+    def _get_bow_parsing_loss_tensors(self, syn=True, sem=True):
+        tensors = []
+        tensor_names = []
+        if syn:
+            # Get BOW loss tensors and names from syntactic encoder
+            tensors += [
+                self.bow_parsing_loss_syn
+            ]
+            tensor_names += [
+                'bow_parsing_loss_syn'
+            ]
+        if sem:
+            # Get BOW loss tensors and names from semantic encoder
+            tensors += [
+                self.bow_parsing_loss_sem
+            ]
+            tensor_names += [
+                'bow_parsing_loss_sem'
+            ]
+
+        return tensors, tensor_names
+
+    def _get_bow_parsing_prediction_tensors(self, syn=True, sem=True):
+        tensors = []
+        tensor_names = []
+
+        return tensors, tensor_names
+
+    def _get_bow_sts_loss_tensors(self, syn=True, sem=True):
+        tensors = []
+        tensor_names = []
+        if syn:
+            # Get BOW loss tensors and names from syntactic encoder
+            tensors += [
+                self.bow_sts_s1_loss_syn,
+                self.bow_sts_s2_loss_syn
+            ]
+            tensor_names += [
+                'bow_sts_s1_loss_syn',
+                'bow_sts_s2_loss_syn'
+            ]
+        if sem:
+            # Get BOW loss tensors and names from semantic encoder
+            tensors += [
+                self.bow_sts_s1_loss_sem,
+                self.bow_sts_s2_loss_sem
+            ]
+            tensor_names += [
+                'bow_sts_s1_loss_sem',
+                'bow_sts_s2_loss_sem'
+            ]
+
+        return tensors, tensor_names
+
+    def _get_bow_sts_prediction_tensors(self, syn=True, sem=True):
+        tensors = []
+        tensor_names = []
+
+        return tensors, tensor_names
+
     # Thanks to Ralph Mao (https://github.com/RalphMao) for this workaround
     def _restore_inner(self, path, predict=False, allow_missing=False):
         with self.sess.as_default():
@@ -2841,6 +3021,10 @@ class SynSemNet(object):
                                         summary = self.sts_eval_summary
                                     else:
                                         raise ValueError('Unrecognized update_type "%s".' % u)
+                                elif t.lower() == 'bow':
+                                    if u.lower() == 'loss':
+                                        log_summaries = self.bow_loss_log_summaries
+                                        summary = self.bow_loss_summary
                                 else:
                                     raise ValueError('Unrecognized task "%s".' % t)
 
@@ -2881,6 +3065,7 @@ class SynSemNet(object):
                 if verbose:
                     stderr('-' * 50 + '\n')
                     stderr('%s set evaluation\n\n' % data_name.upper())
+                    stderr('Extracting predictions...\n')
         
                 info_dict = self._run_batches(
                     data,
@@ -2900,6 +3085,10 @@ class SynSemNet(object):
                     return_sem_sts_loss=True,
                     return_syn_sts_prediction=True,
                     return_sem_sts_prediction=True,
+                    return_syn_bow_loss=True,
+                    return_sem_bow_loss=True,
+                    return_syn_bow_prediction=True,
+                    return_sem_bow_prediction=True,
                     verbose=verbose
                 )
         
@@ -2914,11 +3103,10 @@ class SynSemNet(object):
                     sem=True,
                     name=data_name
                 )
-        
+
+                task = ['wp', 'sts', 'bow']
                 if gold_tree_path is None:
-                    task = ['wp', 'sts']
-                else:
-                    task = ['parsing', 'wp', 'sts']
+                    task.insert(0, 'parsing')
 
                 info_dict.update(eval_metrics)
         
@@ -2972,6 +3160,9 @@ class SynSemNet(object):
 
                     stderr('STS Pearson correlation (sem): %.4f\n' % info_dict['sts_r_sem'])
                     stderr('STS Pearson correlation (syn): %.4f\n\n' % info_dict['sts_r_syn'])
+
+                    stderr('BOW cross-entropy (sem): %.4f\n' % info_dict['bow_loss_sem'])
+                    stderr('BOW cross-entropy (syn): %.4f\n\n' % info_dict['bow_loss_syn'])
 
     def fit(
             self,
@@ -3050,6 +3241,8 @@ class SynSemNet(object):
                         return_sem_wp_loss=True,
                         return_syn_sts_loss=True,
                         return_sem_sts_loss=True,
+                        return_syn_bow_loss=True,
+                        return_sem_bow_loss=True,
                         verbose=verbose
                     )
 
@@ -3061,7 +3254,7 @@ class SynSemNet(object):
                             info_dict_train,
                             name='train',
                             encoder=self.REP_TYPES,
-                            task=['parsing', 'wp', 'sts'],
+                            task=['parsing', 'wp', 'sts', 'bow'],
                             update_type='loss'
                         )
 
