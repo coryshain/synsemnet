@@ -822,6 +822,23 @@ SYN_SEM_NET_KWARGS = [
         "Type of loss to use for STS. One of ``['mse', 'xent']``. MSE gives scalar predictions, and XENT gives categorial (softmax) predictions."
     ),
 
+    # Regularization
+    Kwarg(
+        'char_dropout_rate',
+        None,
+        [float, None],
+        "Level of dropout to apply to characters. If ``None`` or ``0``, no character dropout.",
+        aliases=['n_layers_classifier']
+    ),
+    Kwarg(
+        'word_dropout_rate',
+        None,
+        [float, None],
+        "Level of dropout to apply to words. If ``None`` or ``0``, no word dropout.",
+        aliases=['n_layers_classifier']
+    ),
+
+
     # Numeric settings
     Kwarg(
         'float_type',

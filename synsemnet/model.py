@@ -136,7 +136,6 @@ class SynSemNet(object):
         assert len(self.units_parsing_classifier) == self.layers_parsing_classifier, 'Misalignment in number of layers between n_layers_parsing_classifier and n_units_parsing_classifier.'
 
         # WP decoder layers and units
-
         self.wp_recurrent_decoder = self.n_units_wp_decoder is not None
         if self.n_units_wp_decoder is None:
             self.units_wp_decoder = []
@@ -386,6 +385,13 @@ class SynSemNet(object):
                                             getattr(self, rnn_name),
                                             character_mask=getattr(self, mask_name)
                                         )
+                                        if self.word_dropout_rate:
+                                            val = tf.layers.dropout(
+                                                val,
+                                                rate=self.word_dropout_rate,
+                                                noise_shape=[None, None, 1],
+                                                training=self.training
+                                            )
                                     elif enc == 'word_encodings':
                                         emb_name = '%s_word_embeddings_%s' % (text, s)
                                         rnn_name = 'word_encoder_%s' % s
@@ -718,6 +724,19 @@ class SynSemNet(object):
                     )
                     self.parsing_char_embeddings_syn = self.parsing_char_one_hots
                     self.parsing_char_embeddings_sem = self.parsing_char_one_hots
+                if self.char_dropout_rate:
+                    self.parsing_char_embeddings_syn = tf.layers.dropout(
+                        self.parsing_char_embeddings_syn,
+                        rate=self.char_dropout_rate,
+                        noise_shape=[None, None, None, 1],
+                        training=self.training
+                    )
+                    self.parsing_char_embeddings_sem = tf.layers.dropout(
+                        self.parsing_char_embeddings_sem,
+                        rate=self.char_dropout_rate,
+                        noise_shape=[None, None, None, 1],
+                        training=self.training
+                    )
 
                 self.pos_label = tf.placeholder(self.INT_TF, shape=[None, None], name='pos_label')
 
@@ -757,6 +776,19 @@ class SynSemNet(object):
                     )
                     self.sts_s1_char_embeddings_syn = self.sts_s1_char_one_hots
                     self.sts_s1_char_embeddings_sem = self.sts_s1_char_one_hots
+                if self.char_dropout_rate:
+                    self.sts_s1_char_embeddings_syn = tf.layers.dropout(
+                        self.sts_s1_char_embeddings_syn,
+                        rate=self.char_dropout_rate,
+                        noise_shape=[None, None, None, 1],
+                        training=self.training
+                    )
+                    self.sts_s1_char_embeddings_sem = tf.layers.dropout(
+                        self.sts_s1_char_embeddings_sem,
+                        rate=self.char_dropout_rate,
+                        noise_shape=[None, None, None, 1],
+                        training=self.training
+                    )
 
                 self.sts_s2_chars = tf.placeholder(self.INT_TF, shape=[None, None, None], name='sts_s2_chars')
                 self.sts_s2_char_mask = tf.placeholder(self.FLOAT_TF, shape=[None, None, None], name='sts_s2_char_mask')
@@ -778,6 +810,19 @@ class SynSemNet(object):
                     )
                     self.sts_s2_char_embeddings_syn = self.sts_s2_char_one_hots
                     self.sts_s2_char_embeddings_sem = self.sts_s2_char_one_hots
+                if self.char_dropout_rate:
+                    self.sts_s2_char_embeddings_syn = tf.layers.dropout(
+                        self.sts_s2_char_embeddings_syn,
+                        rate=self.char_dropout_rate,
+                        noise_shape=[None, None, None, 1],
+                        training=self.training
+                    )
+                    self.sts_s2_char_embeddings_sem = tf.layers.dropout(
+                        self.sts_s2_char_embeddings_sem,
+                        rate=self.char_dropout_rate,
+                        noise_shape=[None, None, None, 1],
+                        training=self.training
+                    )
 
                 if self.sts_loss_type.lower() == 'mse':
                     self.sts_label = tf.placeholder(self.FLOAT_TF, shape=[None], name='sts_label')
