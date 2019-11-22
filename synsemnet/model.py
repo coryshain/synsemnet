@@ -3081,7 +3081,7 @@ class SynSemNet(object):
                             for u in update_type:
 
                                 fd_summary = {}
-                                # TODO: Cory, add WP and BOW tasks
+
                                 if t.lower() == 'parsing':
                                     if u.lower() == 'loss':
                                         log_summaries = self.parsing_loss_log_summaries
@@ -3124,8 +3124,9 @@ class SynSemNet(object):
                                 for k in log_summaries:
                                     fd_summary[log_summaries[k]] = info_dict[k + '_' + e]
 
-                                summary_out = self.sess.run(summary, feed_dict=fd_summary)
-                                writer.add_summary(summary_out, self.global_batch_step.eval(session=self.sess))
+                                if len(log_summaries) > 0:
+                                    summary_out = self.sess.run(summary, feed_dict=fd_summary)
+                                    writer.add_summary(summary_out, self.global_batch_step.eval(session=self.sess))
 
     def report_n_params(self, indent=0):
         with self.sess.as_default():
