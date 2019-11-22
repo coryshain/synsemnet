@@ -435,15 +435,16 @@ class SynSemNet(object):
                                     raise ValueError('Unrecognized parsing_decoder_type "%s".' % self.parsing_decoder_type)
                             else:
                                 parsing_input = getattr(self, word_enc_name)
+
                             if self.parsing_add_sent_as_input:
                                 sent_input = getattr(self, 'parsing_sent_encoding_%s' % s)
-                                sent_input = tf.expand_dims(sent_input, axis=-2)
-                                tile_ix = [1, tf.shape(parsing_input)[-2], 1]
+                                sent_input = tf.expand_dims(sent_input, axis=1)
+                                tile_ix = [1, tf.shape(parsing_input)[1], 1]
                                 sent_input = tf.tile(
                                     sent_input,
                                     tile_ix
                                 )
-                                parsing_input = tf.concat([parsing_input, sent_input], axis=-2)
+                                parsing_input = tf.concat([parsing_input, sent_input], axis=2)
 
                             o = self._initialize_parsing_outputs(
                                 parsing_input,
@@ -3078,6 +3079,7 @@ class SynSemNet(object):
                         writer = getattr(self, '%s_%s_writer' % (n, e))
                         for t in task:
                             for u in update_type:
+
                                 fd_summary = {}
                                 # TODO: Cory, add WP and BOW tasks
                                 if t.lower() == 'parsing':
@@ -3111,6 +3113,11 @@ class SynSemNet(object):
                                     if u.lower() == 'loss':
                                         log_summaries = self.bow_loss_log_summaries
                                         summary = self.bow_loss_summary
+                                    elif u.lower() == 'eval':
+                                        log_summaries = self.bow_eval_log_summaries
+                                        summary = self.bow_eval_summary
+                                    else:
+                                        raise ValueError('Unrecognized update_type "%s".' % u)
                                 else:
                                     raise ValueError('Unrecognized task "%s".' % t)
 
