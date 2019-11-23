@@ -2109,7 +2109,7 @@ class SynSemNet(object):
                 i = 0
                 while i < n_minibatch:
                     batch = next(data_feed)
-                    fd_minibatch = {}
+                    fd_minibatch = {self.training: update}
 
                     if data_type.lower() in ['parsing', 'both']:
                         parsing_text_batch = batch['parsing_text']
