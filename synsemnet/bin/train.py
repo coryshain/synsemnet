@@ -35,31 +35,31 @@ if __name__ == '__main__':
     data.initialize_parsing_file(p.parsing_dev_data_path, 'dev')
     data.initialize_sts_file(p.sts_dev_data_path, 'dev')
 
-    # stderr('Caching numeric parsing train data...\n')
-    # data.cache_numeric_parsing_data(
-    #     name='train',
-    #     factor_parse_labels=p['factor_parse_labels'],
-    #     rel_depth=p['parsing_relative_depth'],
-    #     clip_vocab=p['target_vocab_size'] - Dataset.N_SPECIAL
-    # )
-    # stderr('Caching numeric parsing dev data...\n')
-    # data.cache_numeric_parsing_data(
-    #     name='dev',
-    #     factor_parse_labels=p['factor_parse_labels'],
-    #     rel_depth=p['parsing_relative_depth'],
-    #     clip_vocab=p['target_vocab_size'] - Dataset.N_SPECIAL
-    # )
-    #
-    # stderr('Caching numeric STS train data...\n')
-    # data.cache_numeric_sts_data(
-    #     name='train',
-    #     clip_vocab=p['target_vocab_size'] - Dataset.N_SPECIAL
-    # )
-    # stderr('Caching numeric STS dev data...\n')
-    # data.cache_numeric_sts_data(
-    #     name='dev',
-    #     clip_vocab=p['target_vocab_size'] - Dataset.N_SPECIAL
-    # )
+    stderr('Caching numeric parsing train data...\n')
+    data.cache_numeric_parsing_data(
+        name='train',
+        factor_parse_labels=p['factor_parse_labels'],
+        rel_depth=p['parsing_relative_depth'],
+        clip_vocab=p['target_vocab_size'] - Dataset.N_SPECIAL
+    )
+    stderr('Caching numeric parsing dev data...\n')
+    data.cache_numeric_parsing_data(
+        name='dev',
+        factor_parse_labels=p['factor_parse_labels'],
+        rel_depth=p['parsing_relative_depth'],
+        clip_vocab=p['target_vocab_size'] - Dataset.N_SPECIAL
+    )
+
+    stderr('Caching numeric STS train data...\n')
+    data.cache_numeric_sts_data(
+        name='train',
+        clip_vocab=p['target_vocab_size'] - Dataset.N_SPECIAL
+    )
+    stderr('Caching numeric STS dev data...\n')
+    data.cache_numeric_sts_data(
+        name='dev',
+        clip_vocab=p['target_vocab_size'] - Dataset.N_SPECIAL
+    )
 
     char_set = data.char_list
     pos_label_set = data.pos_label_list
