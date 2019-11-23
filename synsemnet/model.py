@@ -367,6 +367,13 @@ class SynSemNet(object):
                                 name_base = name
                                 if grad == 'adversarial':
                                     name += '_adversarial'
+                                    if enc == 'word_embeddings':
+                                        val = replace_gradient(
+                                            tf.identity,
+                                            lambda x: -x * self.adversarial_gradient_scale,
+                                            session=self.sess
+                                        )(getattr(self, name_base + '_clean'))
+                                        setattr(self, name + '_clean', val)
                                     val = replace_gradient(
                                         tf.identity,
                                         lambda x: -x * self.adversarial_gradient_scale,
@@ -385,6 +392,7 @@ class SynSemNet(object):
                                             getattr(self, rnn_name),
                                             character_mask=getattr(self, mask_name)
                                         )
+                                        setattr(self, name + '_clean', val)
                                         if self.word_dropout_rate:
                                             val = tf.layers.dropout(
                                                 val,
@@ -485,6 +493,7 @@ class SynSemNet(object):
                                 if s == 'sem':
                                     sent_enc_name += '_adversarial'
                                     word_emb_name += '_adversarial'
+                                word_emb_name += '_clean'
                                 o = self._initialize_wp_outputs(
                                     module,
                                     getattr(self, sent_enc_name),
@@ -2653,7 +2662,7 @@ class SynSemNet(object):
                 self.wp_parsing_loss_sem,
                 self.wp_sts_s1_loss_sem,
                 self.wp_sts_s2_loss_sem,
-                self.wp_loss_syn
+                self.wp_loss_sem
             ]
             tensor_names += [
                 'wp_parsing_loss_sem',
