@@ -3244,7 +3244,7 @@ class SynSemNet(object):
                 )
 
                 task = ['wp', 'sts', 'bow']
-                if gold_tree_path is None:
+                if gold_tree_path is not None:
                     task.insert(0, 'parsing')
 
                 info_dict.update(eval_metrics)
