@@ -682,6 +682,12 @@ SYN_SEM_NET_KWARGS = [
         "Whether to use an MLP classifier to generate STS outputs. If not, cosine similarity is directly used as the classification. If ``true``, forces **sts_loss_type** to ``mse``."
     ),
     Kwarg(
+        'use_sts_difference_features',
+        True,
+        bool,
+        "Whether to use difference features as inputs to the STS classifier. If not, inputs will be the concatenation of both sentence encodings."
+    ),
+    Kwarg(
         'n_layers_sts_classifier',
         None,
         [int, None],

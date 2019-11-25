@@ -531,6 +531,7 @@ class SynSemNet(object):
                                 s1,
                                 s2,
                                 use_classifier=self.use_sts_classifier,
+                                use_difference_features=self.use_sts_difference_features,
                                 name=module_name
                             )
                             for l in ['logit', 'prediction']:
@@ -1468,7 +1469,7 @@ class SynSemNet(object):
 
                 return sts_decoder
 
-    def _initialize_sts_outputs(self, s1, s2, use_classifier=True, name=None):
+    def _initialize_sts_outputs(self, s1, s2, use_classifier=True, use_difference_features=True, name=None):
         with self.sess.as_default():
             with self.sess.graph.as_default():
                 # Define some new tensors for STS prediction from encodings.
@@ -1478,38 +1479,41 @@ class SynSemNet(object):
                     outdim = self.n_sts_label
 
                 if use_classifier:
-                    #sts prediction from encoder
-                    sts_features = []
-                    # sts_difference_features = tf.subtract(
-                    #     sts_latent_s1,
-                    #     sts_latent_s2,
-                    #     name=name + '_difference_features'
-                    # )
-                    sts_difference_features = tf.abs(
-                        s1 - s2,
-                        name=name + '_difference_features'
-                    )
-                    sts_features.append(sts_difference_features)
-                    sts_squared_difference_features = tf.pow(
-                        s1 - s2,
-                        2,
-                        name=name + '_squared_difference_features'
-                    )
-                    sts_features.append(sts_squared_difference_features)
-                    sts_product_features = tf.multiply(
-                        s1,
-                        s2,
-                        name=name + '_product_features'
-                    )
-                    sts_features.append(sts_product_features)
-                    sts_sim_features = cosine_similarity(s1, s2, epsilon=self.epsilon, session=self.sess)
-                    sts_features.append(sts_sim_features)
-                    # sts_features += [s1, s2]
-                    sts_features = tf.concat(
-                        values=sts_features,
-                        axis=-1,
-                        name=name + '_features'
-                    )
+                    if use_difference_features:
+                        #sts prediction from encoder
+                        sts_features = []
+                        # sts_difference_features = tf.subtract(
+                        #     sts_latent_s1,
+                        #     sts_latent_s2,
+                        #     name=name + '_difference_features'
+                        # )
+                        sts_difference_features = tf.abs(
+                            s1 - s2,
+                            name=name + '_difference_features'
+                        )
+                        sts_features.append(sts_difference_features)
+                        sts_squared_difference_features = tf.pow(
+                            s1 - s2,
+                            2,
+                            name=name + '_squared_difference_features'
+                        )
+                        sts_features.append(sts_squared_difference_features)
+                        sts_product_features = tf.multiply(
+                            s1,
+                            s2,
+                            name=name + '_product_features'
+                        )
+                        sts_features.append(sts_product_features)
+                        sts_sim_features = cosine_similarity(s1, s2, epsilon=self.epsilon, session=self.sess)
+                        sts_features.append(sts_sim_features)
+                        # sts_features += [s1, s2]
+                        sts_features = tf.concat(
+                            values=sts_features,
+                            axis=-1,
+                            name=name + '_features'
+                        )
+                    else:
+                        sts_features = tf.concat([s1, s2], axis=-1)
                     #sts_logit from sts_features with 2 denselayer (section 2 fcnn) from Shao 2017
                     sts_classifier = self._initialize_dense_module(
                         self.layers_sts_classifier + 1,
