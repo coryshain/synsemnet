@@ -827,6 +827,12 @@ SYN_SEM_NET_KWARGS = [
         str,
         "Type of loss to use for STS. One of ``['mse', 'xent']``. MSE gives scalar predictions, and XENT gives categorial (softmax) predictions."
     ),
+    Kwarg(
+        'bow_multihot',
+        False,
+        bool,
+        "Whether to implement BOW loss using softmax (``False``) or multi-hot sigmoid (``True``) cross-entropy."
+    ),
 
     # Regularization
     Kwarg(
@@ -843,6 +849,77 @@ SYN_SEM_NET_KWARGS = [
         "Level of dropout to apply to words. If ``None`` or ``0``, no word dropout.",
         aliases=['n_layers_classifier']
     ),
+    Kwarg(
+        'encoder_regularizer_syn',
+        None,
+        [str, float, None],
+        "Regularizer to use for syntactic encoder",
+        aliases=['encoder_regularizer']
+    ),
+    Kwarg(
+        'encoder_regularizer_sem',
+        None,
+        [str, float, None],
+        "Regularizer to use for semantic encoder",
+        aliases=['encoder_regularizer']
+    ),
+    Kwarg(
+        'parsing_decoder_regularizer',
+        None,
+        [str, float, None],
+        "Regularizer to use for parsing decoder",
+        aliases=['decoder_regularizer']
+    ),
+    Kwarg(
+        'wp_decoder_regularizer',
+        None,
+        [str, float, None],
+        "Regularizer to use for WP decoder",
+        aliases=['decoder_regularizer']
+    ),
+    Kwarg(
+        'sts_decoder_regularizer',
+        None,
+        [str, float, None],
+        "Regularizer to use for STS decoder",
+        aliases=['decoder_regularizer']
+    ),
+    Kwarg(
+        'bow_decoder_regularizer',
+        None,
+        [str, float, None],
+        "Regularizer to use for BOW decoder",
+        aliases=['decoder_regularizer']
+    ),
+    Kwarg(
+        'parsing_classifier_regularizer',
+        None,
+        [str, float, None],
+        "Regularizer to use for parsing classifier",
+        aliases=['classifier_regularizer']
+    ),
+    Kwarg(
+        'wp_classifier_regularizer',
+        None,
+        [str, float, None],
+        "Regularizer to use for WP classifier",
+        aliases=['classifier_regularizer']
+    ),
+    Kwarg(
+        'sts_classifier_regularizer',
+        None,
+        [str, float, None],
+        "Regularizer to use for STS classifier",
+        aliases=['classifier_regularizer']
+    ),
+    Kwarg(
+        'bow_classifier_regularizer',
+        None,
+        [str, float, None],
+        "Regularizer to use for BOW classifier",
+        aliases=['classifier_regularizer']
+    ),
+
 
 
     # Numeric settings

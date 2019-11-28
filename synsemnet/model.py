@@ -68,7 +68,6 @@ class SynSemNet(object):
         self.INT_NP = getattr(np, self.int_type)
         self.UINT_TF = getattr(np, 'u' + self.int_type)
         self.UINT_NP = getattr(tf, 'u' + self.int_type)
-        self.regularizer_losses = []
 
         self.n_char = len(self.char_set)
         self.n_pos = len(self.pos_label_set)
@@ -311,6 +310,8 @@ class SynSemNet(object):
                         [self.word_emb_dim],
                         activation=self.encoder_activation,
                         recurrent_activation=self.encoder_recurrent_activation,
+                        kernel_regularizer=getattr(self, 'encoder_regularizer_%s' % s),
+                        recurrent_regularizer=getattr(self, 'encoder_regularizer_%s' % s),
                         bidirectional=self.bidirectional_encoder,
                         project_encodings=self.project_word_embeddings,
                         projection_activation_inner=self.encoder_projection_activation_inner,
@@ -326,6 +327,8 @@ class SynSemNet(object):
                         self.units_encoder,
                         activation=self.encoder_activation,
                         recurrent_activation=self.encoder_recurrent_activation,
+                        kernel_regularizer=getattr(self, 'encoder_regularizer_%s' % s),
+                        recurrent_regularizer=getattr(self, 'encoder_regularizer_%s' % s),
                         bidirectional=self.bidirectional_encoder,
                         project_encodings=self.project_encodings,
                         projection_activation_inner=self.encoder_projection_activation_inner,
@@ -343,6 +346,8 @@ class SynSemNet(object):
                             self.units_encoder,
                             activation=self.encoder_activation,
                             recurrent_activation=self.encoder_recurrent_activation,
+                            kernel_regularizer=getattr(self, 'encoder_regularizer_%s' % s),
+                            recurrent_regularizer=getattr(self, 'encoder_regularizer_%s' % s),
                             bidirectional=bidirectional,
                             project_encodings=self.project_encodings,
                             projection_activation_inner=self.encoder_projection_activation_inner,
@@ -636,10 +641,11 @@ class SynSemNet(object):
                                 bow_logit_name = 'bow_%s_logit_%s' % (text, s)
                                 bow_target_name = '%s_bow_true' % text 
                                 o = self._initialize_bow_objective(
-                                         getattr(self, bow_target_name),
-                                         getattr(self, bow_logit_name),
-                                         nonzero_scale=scale
-                                    )
+                                    getattr(self, bow_target_name),
+                                    getattr(self, bow_logit_name),
+                                    nonzero_scale=scale,
+                                    multihot=self.bow_multihot
+                                )
                                 setattr(self, 'bow_%s_loss_%s' % (text, s), o['loss'])
                             setattr(
                                 self,
@@ -658,8 +664,14 @@ class SynSemNet(object):
                                         self.wp_loss_sem * self.wp_adversarial_loss_scale + \
                                         self.sts_loss_syn * self.sts_adversarial_loss_scale + \
                                         self.bow_loss_syn * self.bow_adversarial_loss_scale
+
+                reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+                if len(reg_losses) > 0:
+                    self.reg_loss = tf.add_n(reg_losses) / len(reg_losses)
+                else:
+                    self.reg_loss = 0.
                 
-                self.total_loss = self.loss + self.adversarial_loss
+                self.total_loss = self.loss + self.adversarial_loss + self.reg_loss
 
         self._initialize_train_op()
         self._initialize_ema()
@@ -684,12 +696,14 @@ class SynSemNet(object):
                         shape=[self.n_char + 1, self.character_embedding_dim],
                         dtype=self.FLOAT_TF,
                         initializer=get_initializer('he_normal_initializer', session=self.sess),
+                        regularizer=get_regularizer(self.encoder_regularizer_syn, session=self.sess),
                         name='char_embedding_matrix_syn'
                     )
                     self.char_embedding_matrix_sem = tf.get_variable(
                         shape=[self.n_char + 1, self.character_embedding_dim],
                         dtype=self.FLOAT_TF,
                         initializer=get_initializer('he_normal_initializer', session=self.sess),
+                        regularizer=get_regularizer(self.encoder_regularizer_sem, session=self.sess),
                         name='char_embedding_matrix_sem'
                     )
 
@@ -721,8 +735,11 @@ class SynSemNet(object):
                 self.parsing_word_mask = tf.cast(tf.reduce_any(self.parsing_char_mask > 0, axis=-1), dtype=self.FLOAT_TF)
                 self.parsing_masked_one_hots = tf.multiply(self.parsing_words_one_hot, self.parsing_word_mask[..., None])
                 self.parsing_bow_true_unnormed = tf.reduce_sum(self.parsing_masked_one_hots, axis=-2)
-                self.parsing_norm_consts = tf.reduce_sum(self.parsing_bow_true_unnormed, axis=-1)
-                self.parsing_bow_true = tf.div(self.parsing_bow_true_unnormed, tf.maximum(self.parsing_norm_consts[...,None], self.epsilon))
+                if self.bow_multihot:
+                    self.parsing_bow_true = tf.cast(self.parsing_bow_true_unnormed > 0, dtype=self.FLOAT_TF) # Boolean for present/not
+                else:
+                    self.parsing_norm_consts = tf.reduce_sum(self.parsing_bow_true_unnormed, axis=-1)
+                    self.parsing_bow_true = tf.div(self.parsing_bow_true_unnormed, tf.maximum(self.parsing_norm_consts[...,None], self.epsilon))
 
                 if self.character_embedding_dim:
                     self.parsing_char_embeddings_syn = tf.gather(self.char_embedding_matrix_syn, self.parsing_chars)
@@ -773,8 +790,11 @@ class SynSemNet(object):
                 self.sts_s1_word_mask = tf.cast(tf.reduce_any(self.sts_s1_char_mask > 0, axis=-1), dtype=self.FLOAT_TF)
                 self.sts_s1_masked_one_hots = tf.multiply(self.sts_s1_words_one_hot, self.sts_s1_word_mask[..., None])
                 self.sts_s1_bow_true_unnormed = tf.reduce_sum(self.sts_s1_masked_one_hots, axis=-2)
-                self.sts_s1_norm_consts = tf.reduce_sum(self.sts_s1_bow_true_unnormed, axis=-1)
-                self.sts_s1_bow_true = tf.div(self.sts_s1_bow_true_unnormed, tf.maximum(self.sts_s1_norm_consts[...,None], self.epsilon))
+                if self.bow_multihot:
+                    self.sts_s1_bow_true = tf.cast(self.sts_s1_bow_true_unnormed > 0, dtype=self.FLOAT_TF) # Boolean for present/not
+                else:
+                    self.sts_s1_norm_consts = tf.reduce_sum(self.sts_s1_bow_true_unnormed, axis=-1)
+                    self.sts_s1_bow_true = tf.div(self.sts_s1_bow_true_unnormed, tf.maximum(self.sts_s1_norm_consts[...,None], self.epsilon))
 
                 if self.character_embedding_dim:
                     self.sts_s1_char_embeddings_syn = tf.gather(self.char_embedding_matrix_syn, self.sts_s1_chars)
@@ -807,8 +827,11 @@ class SynSemNet(object):
                 self.sts_s2_word_mask = tf.cast(tf.reduce_any(self.sts_s2_char_mask > 0, axis=-1), dtype=self.FLOAT_TF)
                 self.sts_s2_masked_one_hots = tf.multiply(self.sts_s2_words_one_hot, self.sts_s2_word_mask[..., None])
                 self.sts_s2_bow_true_unnormed = tf.reduce_sum(self.sts_s2_masked_one_hots, axis=-2)
-                self.sts_s2_norm_consts = tf.reduce_sum(self.sts_s2_bow_true_unnormed, axis=-1)
-                self.sts_s2_bow_true = tf.div(self.sts_s2_bow_true_unnormed, tf.maximum(self.sts_s2_norm_consts[...,None], self.epsilon))
+                if self.bow_multihot:
+                    self.sts_s2_bow_true = tf.cast(self.sts_s2_bow_true_unnormed > 0, dtype=self.FLOAT_TF) # Boolean for present/not
+                else:
+                    self.sts_s2_norm_consts = tf.reduce_sum(self.sts_s2_bow_true_unnormed, axis=-1)
+                    self.sts_s2_bow_true = tf.div(self.sts_s2_bow_true_unnormed, tf.maximum(self.sts_s2_norm_consts[...,None], self.epsilon))
 
                 if self.character_embedding_dim:
                     self.sts_s2_char_embeddings_syn = tf.gather(self.char_embedding_matrix_syn, self.sts_s2_chars)
@@ -847,6 +870,7 @@ class SynSemNet(object):
             n_layers,
             n_units,
             kernel_initializer='he_normal_initializer',
+            kernel_regularizer=None,
             activation=None,
             activation_inner='elu',
             resnet_n_layers_inner=None,
@@ -873,6 +897,7 @@ class SynSemNet(object):
                             units=units_cur,
                             layers_inner=resnet_n_layers_inner,
                             kernel_initializer=kernel_initializer,
+                            kernel_regularizer=kernel_regularizer,
                             activation_inner=activation_inner_cur,
                             activation=activation_cur,
                             project_inputs=False,
@@ -885,6 +910,7 @@ class SynSemNet(object):
                             training=self.training,
                             units=units_cur,
                             kernel_initializer=kernel_initializer,
+                            kernel_regularizer=kernel_regularizer,
                             activation=activation_cur,
                             name=name + '_l%d' % l,
                             reuse=reuse,
@@ -903,6 +929,8 @@ class SynSemNet(object):
             n_units,
             kernel_initializer='he_normal_initializer',
             recurrent_initializer='orthogonal_initializer',
+            kernel_regularizer=None,
+            recurrent_regularizer=None,
             activation='tanh',
             activation_inner='tanh',
             recurrent_activation='sigmoid',
@@ -937,6 +965,8 @@ class SynSemNet(object):
                         units=units_cur,
                         kernel_initializer=kernel_initializer,
                         recurrent_initializer=recurrent_initializer,
+                        kernel_regularizer=kernel_regularizer,
+                        recurrent_regularizer=recurrent_regularizer,
                         activation=activation_cur,
                         recurrent_activation=recurrent_activation,
                         return_sequences=return_sequences,
@@ -950,6 +980,8 @@ class SynSemNet(object):
                             units=units_cur,
                             kernel_initializer=kernel_initializer,
                             recurrent_initializer=recurrent_initializer,
+                            kernel_regularizer=kernel_regularizer,
+                            recurrent_regularizer=recurrent_regularizer,
                             activation=activation_cur,
                             recurrent_activation=recurrent_activation,
                             return_sequences=return_sequences,
@@ -959,14 +991,17 @@ class SynSemNet(object):
                         rnn = make_bi_rnn_layer(fwd_rnn, bwd_rnn, session=self.sess)
                     else:
                         rnn = fwd_rnn
+                    rnn_out = rnn
                     if passthru: # Concat inputs and outputs to allow passthru connections
-                        def char_encoder_rnn(x, layer=rnn, mask=None):
+                        def bwd_rnn(x, layer=rnn, mask=None):
                             below = x
                             above = layer(x, mask=mask)
                             out = tf.concat([below, above], axis=-1)
                             return out
 
-                    out.append(make_lambda(rnn, session=self.sess, use_kwargs=True))
+                        rnn_out = bwd_rnn
+
+                    out.append(make_lambda(rnn_out, session=self.sess, use_kwargs=True))
 
                 if project_encodings:
                     if resnet_n_layers_inner:
@@ -974,6 +1009,7 @@ class SynSemNet(object):
                             training=self.training,
                             units=n_units[-1],
                             kernel_initializer=kernel_initializer,
+                            kernel_regularizer=kernel_regularizer,
                             layers_inner=resnet_n_layers_inner,
                             activation_inner=projection_activation_inner,
                             activation=None,
@@ -987,6 +1023,7 @@ class SynSemNet(object):
                             training=self.training,
                             units=n_units[-1],
                             kernel_initializer=kernel_initializer,
+                            kernel_regularizer=kernel_regularizer,
                             activation=None,
                             session=self.sess,
                             name=name + '_projection',
@@ -1005,6 +1042,7 @@ class SynSemNet(object):
             n_units,
             padding='valid',
             kernel_initializer='he_normal_initializer',
+            kernel_regularizer=None,
             activation='elu',
             activation_inner='elu',
             project_encodings=True,
@@ -1035,6 +1073,7 @@ class SynSemNet(object):
                             kernel_size=kernel_size_cur,
                             n_filters=units_cur,
                             kernel_initializer=kernel_initializer,
+                            kernel_regularizer=kernel_regularizer,
                             activation=activation_cur,
                             padding=padding,
                             layers_inner=resnet_n_layers_inner,
@@ -1049,6 +1088,7 @@ class SynSemNet(object):
                             kernel_size=kernel_size_cur,
                             n_filters=units_cur,
                             kernel_initializer=kernel_initializer,
+                            kernel_regularizer=kernel_regularizer,
                             activation=activation_cur,
                             padding=padding,
                             name=name + '_l%d' % l,
@@ -1068,6 +1108,7 @@ class SynSemNet(object):
                             units=n_units[-1],
                             layers_inner=resnet_n_layers_inner,
                             kernel_initializer=kernel_initializer,
+                            kernel_regularizer=kernel_regularizer,
                             activation_inner=projection_activation_inner,
                             activation=activation,
                             project_inputs=False,
@@ -1080,6 +1121,7 @@ class SynSemNet(object):
                             training=self.training,
                             units=n_units[-1],
                             kernel_initializer=kernel_initializer,
+                            kernel_regularizer=kernel_regularizer,
                             activation=activation,
                             session=self.sess,
                             name=name + '_projection',
@@ -1090,6 +1132,23 @@ class SynSemNet(object):
                 out = compose_lambdas(out)
 
                 return out
+
+    def _initialize_transformer_module(
+            self,
+            n_layers,
+            n_units,
+            kernel_initializer='he_normal_initializer',
+            kernel_regularizer=None,
+            activation='elu',
+            activation_inner='elu',
+            bidirectional=True,
+            project_encodings=True,
+            projection_activation_inner='elu',
+            return_sequences=True,
+            reuse=None,
+            name='transformer'
+    ):
+        pass
 
     def _initialize_word_embeddings(self, inputs, encoder, character_mask=None):
         with self.sess.as_default():
@@ -1163,6 +1222,7 @@ class SynSemNet(object):
                         self.units_parsing_decoder,
                         activation=self.parsing_decoder_activation,
                         activation_inner=self.parsing_decoder_activation_inner,
+                        kernel_regularizer=self.parsing_decoder_regularizer,
                         padding='same',
                         project_encodings=self.project_parsing_decodings,
                         projection_activation_inner=self.parsing_projection_activation_inner,
@@ -1178,6 +1238,8 @@ class SynSemNet(object):
                         activation=self.parsing_decoder_activation,
                         activation_inner=self.parsing_decoder_activation_inner,
                         recurrent_activation=self.parsing_decoder_recurrent_activation,
+                        kernel_regularizer=self.parsing_decoder_regularizer,
+                        recurrent_regularizer=self.parsing_decoder_regularizer,
                         project_encodings=self.project_parsing_decodings,
                         projection_activation_inner=self.parsing_projection_activation_inner,
                         resnet_n_layers_inner=self.parsing_decoder_resnet_n_layers_inner,
@@ -1209,6 +1271,7 @@ class SynSemNet(object):
                     self.units_parsing_classifier + [units],
                     activation=None,
                     activation_inner=self.parsing_classifier_activation_inner,
+                    kernel_regularizer=self.parsing_classifier_regularizer,
                     resnet_n_layers_inner=self.parsing_classifier_resnet_n_layers_inner,
                     name=name + '_classifier'
                 )
@@ -1262,6 +1325,8 @@ class SynSemNet(object):
                     activation=self.wp_decoder_activation,
                     activation_inner=self.wp_decoder_activation_inner,
                     recurrent_activation=self.wp_decoder_recurrent_activation,
+                    kernel_regularizer=self.wp_decoder_regularizer,
+                    recurrent_regularizer=self.parsing_decoder_regularizer,
                     project_encodings=False,
                     resnet_n_layers_inner=self.wp_decoder_resnet_n_layers_inner,
                     return_sequences=True,
@@ -1274,6 +1339,7 @@ class SynSemNet(object):
                         [self.word_emb_dim],
                         activation=None,
                         activation_inner=self.wp_projection_activation_inner,
+                        kernel_regularizer=self.wp_classifier_regularizer,
                         resnet_n_layers_inner=self.wp_decoder_resnet_n_layers_inner,
                     )
 
@@ -1317,30 +1383,17 @@ class SynSemNet(object):
                             else:
                                 x = [s]
 
-                            if pe_type and pe_type.lower() in ['periodic', 'transformer_pe']:
-                                time = tf.cast(tf.range(1, t + 1), dtype=self.FLOAT_TF)[..., None]
-                                n = pe_n_units // 2
-
-                                if pe_type.lower() == 'periodic':
-                                    coef = tf.exp(tf.linspace(-2., 2., n))[None, ...]
-                                elif pe_type.lower() == 'transformer_pe':
-                                    log_timescale_increment = np.log(10000) / (n - 1)
-                                    coef = (tf.exp(tf.cast(tf.range(n), dtype=self.FLOAT_TF) * -log_timescale_increment))[None, ...]
-
-                                shape_base = tf.shape(x[0])
-                                tile_ix = [shape_base[i] for i in range(len(x[0].shape) - 2)] + [1, 1]
-
-                                sin = tf.sin(time * coef)
-                                while len(sin.shape) < len(w.shape):
-                                    sin = sin[None, ...]
-                                sin = tf.tile(sin, tile_ix)
-
-                                cos = tf.cos(time * coef)
-                                while len(cos.shape) < len(w.shape):
-                                    cos = cos[None, ...]
-                                cos = tf.tile(cos, tile_ix)
-
-                                x += [sin, cos]
+                            if pe_type:
+                                pe = get_positional_encoding(
+                                    tf.shape(x[0]),
+                                    pe_type=pe_type,
+                                    session=self.sess,
+                                    pe_n_units=pe_n_units,
+                                    int_type=self.INT_TF,
+                                    float_type=self.FLOAT_TF
+                                )
+                                
+                                x += [pe]
 
                             if len(x) == 1:
                                 x = x[0]
@@ -1378,6 +1431,7 @@ class SynSemNet(object):
                     self.units_wp_classifier + [units],
                     activation=None,
                     activation_inner=self.wp_classifier_activation_inner,
+                    kernel_regularizer=self.wp_classifier_regularizer,
                     resnet_n_layers_inner=self.wp_classifier_resnet_n_layers_inner,
                     name=name + '_classifier'
                 )
@@ -1443,6 +1497,7 @@ class SynSemNet(object):
                         self.units_sts_decoder,
                         activation=self.sts_decoder_activation,
                         activation_inner=self.sts_decoder_activation_inner,
+                        kernel_regularizer=self.sts_decoder_regularizer,
                         padding='same',
                         project_encodings=self.project_sts_decodings,
                         projection_activation_inner=self.sts_projection_activation_inner,
@@ -1457,6 +1512,8 @@ class SynSemNet(object):
                         bidirectional=self.bidirectional_sts_decoder,
                         activation=self.sts_decoder_activation,
                         activation_inner=self.sts_decoder_activation_inner,
+                        kernel_regularizer=self.sts_decoder_regularizer,
+                        recurrent_regularizer=self.parsing_decoder_regularizer,
                         recurrent_activation=self.sts_decoder_recurrent_activation,
                         project_encodings=self.project_sts_decodings,
                         projection_activation_inner=self.sts_projection_activation_inner,
@@ -1520,6 +1577,7 @@ class SynSemNet(object):
                         self.units_sts_classifier + [outdim],
                         activation=None,
                         activation_inner=self.sts_classifier_activation_inner,
+                        kernel_regularizer=self.sts_classifier_regularizer,
                         resnet_n_layers_inner=self.sts_classifier_resnet_n_layers_inner,
                         name=name + '_classifier'
                     )
@@ -1557,18 +1615,22 @@ class SynSemNet(object):
                 self.units_bow_classifier + [outdim],
                 activation=None,
                 activation_inner=self.bow_classifier_activation_inner,
+                kernel_regularizer=self.sts_classifier_regularizer,
                 resnet_n_layers_inner=self.bow_classifier_resnet_n_layers_inner,
                 name=name + '_classifier'
                 )
                 return bow_classifier
 
 
-    def _initialize_bow_outputs(self, bow_classifier, s):
+    def _initialize_bow_outputs(self, bow_classifier, s, multihot=True):
         #generates logit and prediction dict from sentence input
         #s -> sentence encoding
         with self.sess.as_default():
             bow_logit = bow_classifier(s)
-            bow_prediction = tf.nn.softmax(bow_logit, axis=-1)
+            if multihot:
+                bow_prediction = tf.cast(bow_logit > 0, dtype=self.FLOAT_TF)
+            else:
+                bow_prediction = tf.nn.softmax(bow_logit, axis=-1)
             out = {
                     'logit': bow_logit,
                     'prediction': bow_prediction
@@ -1763,16 +1825,22 @@ class SynSemNet(object):
 
                 return out
 
-    def _initialize_bow_objective(self, label, logit, nonzero_scale=None):
+    def _initialize_bow_objective(self, label, logit, nonzero_scale=None, multihot=False):
         with self.sess.as_default():
             with self.sess.graph.as_default():
                 if nonzero_scale:
                     if label is None:
                         label = self.bow_label 
-                    loss = tf.losses.softmax_cross_entropy(
-                            label,
-                            logit
+                    if multihot:
+                        loss = tf.losses.sigmoid_cross_entropy(
+                                label,
+                                logit
                         )
+                    else:
+                        loss = tf.losses.softmax_cross_entropy(
+                                label,
+                                logit
+                            )
                 else:
                     loss = tf.convert_to_tensor(0.)
                 out = { 'loss': loss }
@@ -1957,7 +2025,14 @@ class SynSemNet(object):
         return ['bow_loss']
 
     def _initialize_bow_eval_log_entries(self):
-        return []
+        if self.bow_multihot:
+            return [
+                'bow_p',
+                'bow_r',
+                'bow_f'
+            ]
+        else:
+            return []
 
     def _initialize_log_summaries(self, log_entries, collection=None):
         with self.sess.as_default():
@@ -2089,17 +2164,21 @@ class SynSemNet(object):
             elif 'prediction' in k:
                 info_dict[k] = []
                 gold_key = k.replace('_syn', '').replace('_sem', '').replace('prediction', 'true')
-                if not gold_key in info_dict:
-                    gold_keys.add(gold_key)
-                    info_dict[gold_key] = []
+                gold_keys.add(gold_key)
+                info_dict[gold_key] = []
 
         if data_type.lower() in ['parsing', 'both'] and return_syn_parsing_prediction or return_sem_parsing_prediction:
             info_dict['parsing_text'] = []
             info_dict['parsing_text_mask'] = []
             gold_keys.add('parsing_text')
             gold_keys.add('parsing_text_mask')
-            if return_syn_wp_prediction:
+            if return_syn_wp_prediction or return_sem_wp_prediction:
                 info_dict['wp_parsing_true'] = []
+            if return_syn_bow_prediction or return_sem_bow_prediction:
+                gold_keys.remove('bow_parsing_true')
+                info_dict['bow_parsing_true'] = []
+                to_run += [self.parsing_bow_true]
+                to_run_names += ['bow_parsing_true']
 
         if data_type.lower() in ['sts', 'both'] and return_syn_sts_prediction or return_sem_sts_prediction:
             info_dict['sts_s1_text'] = []
@@ -2110,9 +2189,16 @@ class SynSemNet(object):
             gold_keys.add('sts_s1_text_mask')
             gold_keys.add('sts_s2_text')
             gold_keys.add('sts_s2_text_mask')
-            if return_syn_wp_prediction:
+            if return_syn_wp_prediction or return_sem_wp_prediction:
                 info_dict['wp_sts_s1_true'] = []
                 info_dict['wp_sts_s2_true'] = []
+            if return_syn_bow_prediction or return_sem_bow_prediction:
+                gold_keys.remove('bow_sts_s1_true')
+                gold_keys.remove('bow_sts_s2_true')
+                info_dict['bow_sts_s1_true'] = []
+                info_dict['bow_sts_s2_true'] = []
+                to_run += [self.sts_s1_bow_true, self.sts_s2_bow_true]
+                to_run_names += ['bow_sts_s1_true', 'bow_sts_s2_true']
 
         with self.sess.as_default():
             with self.sess.graph.as_default():
@@ -2158,6 +2244,7 @@ class SynSemNet(object):
                         })
                         if self.factor_parse_labels:
                             fd_minibatch[self.parse_depth_src] = parse_depth_batch
+
                     if data_type.lower() in ['sts', 'both']:
                         sts_s1_text_batch = batch['sts_s1_text']
                         if not 'n_sts_s1' in info_dict:
@@ -2211,7 +2298,7 @@ class SynSemNet(object):
                     for k in batch_dict:
                         if 'loss' in k:
                             info_dict[k] += batch_dict[k]
-                        elif 'prediction' in k:
+                        elif 'prediction' in k or k.startswith('bow_'):
                             info_dict[k].append(batch_dict[k])
 
                     if verbose:
@@ -2244,9 +2331,9 @@ class SynSemNet(object):
 
                 for k in to_run_names + sorted(list(gold_keys)):
                     # if 'loss' in k or 'acc' in k:
-                    if 'loss' in k:
+                    if '_loss' in k:
                         info_dict[k] /= n_minibatch
-                    elif 'prediction' in k or k in gold_keys:
+                    elif '_prediction' in k or '_true' in k or k in gold_keys:
                         if len(info_dict[k]) > 0:
                             info_dict[k] = padded_concat(info_dict[k], axis=0)
                         else:
@@ -2366,13 +2453,12 @@ class SynSemNet(object):
                 randomize=randomize
             )
 
-            info_dict = self._run_batches_inner(
+            info_dict_cur = self._run_batches_inner(
                 to_run,
                 to_run_names,
                 data_feed,
                 n_minibatch,
                 data_type='both',
-                info_dict=info_dict,
                 update=update,
                 return_syn_parsing_loss=return_syn_parsing_losses,
                 return_sem_parsing_loss=return_sem_parsing_losses,
@@ -2392,6 +2478,9 @@ class SynSemNet(object):
                 return_sem_bow_prediction=return_sem_bow_prediction,
                 verbose=verbose
             )
+            for x in info_dict_cur:
+                if not x in info_dict:
+                    info_dict[x] = info_dict_cur[x]
         else:
             # Parsing
             wp_parsing_loss_tensors, wp_parsing_loss_tensor_names = self._get_wp_parsing_loss_tensors(
@@ -2441,21 +2530,30 @@ class SynSemNet(object):
                     randomize=randomize
                 )
 
-                info_dict = self._run_batches_inner(
+                info_dict_cur = self._run_batches_inner(
                     to_run,
                     to_run_names,
                     data_feed,
                     n_minibatch_cur,
                     data_type='parsing',
-                    info_dict=info_dict,
                     update=update,
                     return_syn_parsing_loss=return_syn_parsing_losses,
+                    return_sem_parsing_loss=return_sem_parsing_losses,
                     return_syn_parsing_prediction=return_syn_parsing_prediction,
                     return_sem_parsing_prediction=return_sem_parsing_prediction,
+                    return_syn_wp_loss=return_syn_wp_loss,
+                    return_sem_wp_loss=return_sem_wp_loss,
                     return_syn_wp_prediction=return_syn_wp_prediction,
                     return_sem_wp_prediction=return_sem_wp_prediction,
+                    return_syn_bow_loss=return_syn_bow_loss,
+                    return_sem_bow_loss=return_sem_bow_loss,
+                    return_syn_bow_prediction=return_syn_bow_prediction,
+                    return_sem_bow_prediction=return_sem_bow_prediction,
                     verbose=verbose
                 )
+                for x in info_dict_cur:
+                    if not x in info_dict:
+                        info_dict[x] = info_dict_cur[x]
 
             # STS
             wp_sts_loss_tensors, wp_sts_loss_tensor_names = self._get_wp_sts_loss_tensors(
@@ -2506,21 +2604,30 @@ class SynSemNet(object):
                     randomize=randomize
                 )
 
-                info_dict = self._run_batches_inner(
+                info_dict_cur = self._run_batches_inner(
                     to_run,
                     to_run_names,
                     data_feed,
                     n_minibatch_cur,
                     data_type='sts',
-                    info_dict=info_dict,
                     update=update,
+                    return_syn_sts_loss=return_syn_sts_loss,
                     return_sem_sts_loss=return_sem_sts_loss,
                     return_syn_sts_prediction=return_syn_sts_prediction,
                     return_sem_sts_prediction=return_sem_sts_prediction,
+                    return_syn_wp_loss=return_syn_wp_loss,
+                    return_sem_wp_loss=return_sem_wp_loss,
+                    return_syn_wp_prediction=return_syn_wp_prediction,
+                    return_sem_wp_prediction=return_sem_wp_prediction,
                     return_syn_bow_loss=return_syn_bow_loss,
                     return_sem_bow_loss=return_sem_bow_loss,
+                    return_syn_bow_prediction=return_syn_bow_prediction,
+                    return_sem_bow_prediction=return_sem_bow_prediction,
                     verbose=verbose
                 )
+                for x in info_dict_cur:
+                    if not x in info_dict:
+                        info_dict[x] = info_dict_cur[x]
 
             if return_syn_wp_loss:
                 wp_loss_syn = 0.
@@ -2870,6 +2977,30 @@ class SynSemNet(object):
     def _get_bow_prediction_tensors(self, syn=True, sem=True):
         tensors = []
         tensor_names = []
+        if self.bow_multihot:
+            if syn:
+                tensors += [
+                    self.bow_parsing_prediction_syn,
+                    self.bow_sts_s1_prediction_syn,
+                    self.bow_sts_s2_prediction_syn
+                ]
+                tensor_names += [
+                    'bow_parsing_prediction_syn',
+                    'bow_sts_s1_prediction_syn',
+                    'bow_sts_s2_prediction_syn'
+                ]
+            if sem:
+                tensors += [
+                    self.bow_parsing_prediction_sem,
+                    self.bow_sts_s1_prediction_sem,
+                    self.bow_sts_s2_prediction_sem
+                ]
+                tensor_names += [
+                    'bow_parsing_prediction_sem',
+                    'bow_sts_s1_prediction_sem',
+                    'bow_sts_s2_prediction_sem',
+                    'bow_prediction_sem'
+                ]
 
         return tensors, tensor_names
 
@@ -2898,6 +3029,21 @@ class SynSemNet(object):
     def _get_bow_parsing_prediction_tensors(self, syn=True, sem=True):
         tensors = []
         tensor_names = []
+        if self.bow_multihot:
+            if syn:
+                tensors += [
+                    self.bow_parsing_prediction_syn
+                ]
+                tensor_names += [
+                    'bow_parsing_prediction_syn'
+                ]
+            if sem:
+                tensors += [
+                    self.bow_parsing_prediction_sem
+                ]
+                tensor_names += [
+                    'bow_parsing_prediction_sem'
+                ]
 
         return tensors, tensor_names
 
@@ -2930,6 +3076,25 @@ class SynSemNet(object):
     def _get_bow_sts_prediction_tensors(self, syn=True, sem=True):
         tensors = []
         tensor_names = []
+        if self.bow_multihot:
+            if syn:
+                tensors += [
+                    self.bow_sts_s1_prediction_syn,
+                    self.bow_sts_s2_prediction_syn
+                ]
+                tensor_names += [
+                    'bow_sts_s1_prediction_syn',
+                    'bow_sts_s2_prediction_syn'
+                ]
+            if sem:
+                tensors += [
+                    self.bow_sts_s1_prediction_sem,
+                    self.bow_sts_s2_prediction_sem
+                ]
+                tensor_names += [
+                    'bow_sts_s1_prediction_sem',
+                    'bow_sts_s2_prediction_sem'
+                ]
 
         return tensors, tensor_names
 
@@ -3117,6 +3282,35 @@ class SynSemNet(object):
             else:
                 v = 0.
             out += ' ' * (indent + 2) + 'Tag Acc:  %.4f\n' % v
+
+        return out
+
+
+    def report_bow_eval(self, bow_eval, indent=0):
+        out = ''
+        for e in ('syn', 'sem'):
+            out += ' ' * indent + 'BOW eval (%s):\n' % e
+
+            k = 'bow_f_' + e
+            if k in bow_eval:
+                v = bow_eval[k]
+            else:
+                v = 0.
+            out += ' ' * (indent + 2) + 'F:   %.4f\n' % v
+
+            k = 'bow_p_' + e
+            if k in bow_eval:
+                v = bow_eval[k]
+            else:
+                v = 0.
+            out += ' ' * (indent + 2) + 'P:   %.4f\n' % v
+
+            k = 'bow_r_' + e
+            if k in bow_eval:
+                v = bow_eval[k]
+            else:
+                v = 0.
+            out += ' ' * (indent + 2) + 'R:   %.4f\n' % v
 
         return out
 
@@ -3313,8 +3507,13 @@ class SynSemNet(object):
                     stderr('STS Pearson correlation (sem): %.4f\n' % info_dict['sts_r_sem'])
                     stderr('STS Pearson correlation (syn): %.4f\n\n' % info_dict['sts_r_syn'])
 
-                    stderr('BOW cross-entropy (sem): %.4f\n' % info_dict['bow_loss_sem'])
-                    stderr('BOW cross-entropy (syn): %.4f\n\n' % info_dict['bow_loss_syn'])
+                    if self.bow_multihot:
+                        stderr(self.report_bow_eval(info_dict))
+                    else:
+                        stderr('BOW cross-entropy (sem): %.4f\n' % info_dict['bow_loss_sem'])
+                        stderr('BOW cross-entropy (syn): %.4f\n' % info_dict['bow_loss_syn'])
+                        
+                    stderr('\n')
 
     def fit(
             self,
@@ -3711,6 +3910,62 @@ class SynSemNet(object):
             out['sts_r_%s' % e] = r
 
         return out
+    
+    def eval_bow_predictions(
+            self,
+            info_dict,
+            syn=True,
+            sem=True
+    ):
+        encoder = []
+        if syn:
+            encoder.append('syn')
+        if sem:
+            encoder.append('sem')
+
+        out = {}
+        
+        if self.bow_multihot:
+            for e in encoder:
+                parsing_true = info_dict['bow_parsing_true']
+                parsing_pred = info_dict['bow_parsing_prediction_%s' % e]
+                
+                sts_s1_true = info_dict['bow_sts_s1_true']
+                sts_s1_pred = info_dict['bow_sts_s1_prediction_%s' % e]
+                
+                sts_s2_true = info_dict['bow_sts_s2_true']
+                sts_s2_pred = info_dict['bow_sts_s2_prediction_%s' % e]
+    
+                parsing_tp = np.logical_and(parsing_pred, parsing_true).sum()
+                parsing_fp = np.logical_and(parsing_pred, np.logical_not(parsing_true)).sum()
+                parsing_fn = np.logical_and(parsing_true, np.logical_not(parsing_pred)).sum()
+
+                sts_s1_tp = np.logical_and(sts_s1_pred, sts_s1_true).sum()
+                sts_s1_fp = np.logical_and(sts_s1_pred, np.logical_not(sts_s1_true)).sum()
+                sts_s1_fn = np.logical_and(sts_s1_true, np.logical_not(sts_s1_pred)).sum()
+
+                sts_s2_tp = np.logical_and(sts_s2_pred, sts_s2_true).sum()
+                sts_s2_fp = np.logical_and(sts_s2_pred, np.logical_not(sts_s2_true)).sum()
+                sts_s2_fn = np.logical_and(sts_s2_true, np.logical_not(sts_s2_pred)).sum()
+                
+                tp = parsing_tp + sts_s1_tp + sts_s2_tp
+                fp = parsing_fp + sts_s1_fp + sts_s2_fp
+                fn = parsing_fn + sts_s1_fn + sts_s2_fn
+
+                p = tp / np.maximum(tp + fp, self.epsilon)
+                r = tp / np.maximum(tp + fn, self.epsilon)
+                f = p * r / np.maximum(p + r, self.epsilon) * 2
+    
+                out['bow_p_%s' % e] = p * 100
+                out['bow_r_%s' % e] = r * 100
+                out['bow_f_%s' % e] = f * 100
+
+                print(tp)
+                print(fp)
+                print(fn)
+                print(out)
+
+        return out
 
     def eval_predictions(
             self,
@@ -3739,6 +3994,11 @@ class SynSemNet(object):
             sem=syn,
         ))
         out.update(self.eval_sts_predictions(
+            info_dict,
+            syn=syn,
+            sem=syn,
+        ))
+        out.update(self.eval_bow_predictions(
             info_dict,
             syn=syn,
             sem=syn,

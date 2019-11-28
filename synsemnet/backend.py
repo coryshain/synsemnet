@@ -196,6 +196,52 @@ def get_dropout(rate, training=True, noise_shape=None, session=None):
             return out
 
 
+def get_positional_encoding(
+        batch_shape,
+        pe_type='periodic',
+        session=None,
+        pe_n_units=256,
+        int_type=tf.int32,
+        float_type=tf.float32,
+):
+    session = get_session(session)
+    with session.as_default():
+        with session.graph.as_default():
+            if pe_type.lower() in ['periodic', 'transformer_pe']:
+                batch_shape = tf.convert_to_tensor(batch_shape)
+
+                t = tf.cast(batch_shape[-2], dtype=int_type)
+
+                time = tf.cast(tf.range(1, t + 1), dtype=float_type)[..., None]
+                n = pe_n_units // 2
+
+                if pe_type.lower() == 'periodic':
+                    coef = tf.exp(tf.linspace(-2., 2., n))[None, ...]
+                elif pe_type.lower() == 'transformer_pe':
+                    log_timescale_increment = np.log(10000) / (n - 1)
+                    coef = (tf.exp(tf.cast(tf.range(n), dtype=float_type) * -log_timescale_increment))[None, ...]
+
+                shape_base = batch_shape
+                pe_rank = batch_shape.shape[0]
+                tile_ix = [shape_base[i] for i in range(pe_rank - 2)] + [1, 1]
+
+                sin = tf.sin(time * coef)
+                while len(sin.shape) < pe_rank:
+                    sin = sin[None, ...]
+                sin = tf.tile(sin, tile_ix)
+
+                cos = tf.cos(time * coef)
+                while len(cos.shape) < pe_rank:
+                    cos = cos[None, ...]
+                cos = tf.tile(cos, tile_ix)
+
+                pe = tf.concat([sin, cos], axis=-1)
+            else:
+                raise ValueError('Unrecognized value "%s" for pe_type.' % pe_type)
+
+            return pe
+
+
 def initialize_embeddings(categories, dim, default=0., name=None, session=None):
     session = get_session(session)
     with session.as_default():
@@ -610,6 +656,7 @@ class Conv1DLayer(object):
             padding='valid',
             kernel_initializer='he_normal_initializer',
             bias_initializer='zeros_initializer',
+            kernel_regularizer=None,
             use_bias=True,
             activation=None,
             dropout=None,
@@ -628,6 +675,7 @@ class Conv1DLayer(object):
                 self.padding = padding
                 self.kernel_initializer = get_initializer(kernel_initializer, session=self.session)
                 self.bias_initializer = get_initializer(bias_initializer, session=self.session)
+                self.kernel_regularizer = get_regularizer(kernel_regularizer, session=self.session)
                 self.use_bias = use_bias
                 self.activation = get_activation(activation, session=self.session, training=self.training)
                 self.dropout = get_dropout(dropout, session=self.session, noise_shape=None, training=self.training)
@@ -653,6 +701,7 @@ class Conv1DLayer(object):
                         self.kernel_size,
                         kernel_initializer=self.kernel_initializer,
                         bias_initializer=self.bias_initializer,
+                        kernel_regularizer=self.kernel_regularizer,
                         padding=self.padding,
                         strides=self.stride,
                         use_bias=self.use_bias,
@@ -700,6 +749,7 @@ class Conv1DResidualLayer(object):
             padding='valid',
             kernel_initializer='he_normal_initializer',
             bias_initializer='zeros_initializer',
+            kernel_regularizer=None,
             use_bias=True,
             layers_inner=3,
             activation=None,
@@ -722,6 +772,7 @@ class Conv1DResidualLayer(object):
                 self.padding = padding
                 self.kernel_initializer = get_initializer(kernel_initializer, session=self.session)
                 self.bias_initializer = get_initializer(bias_initializer, session=self.session)
+                self.kernel_regularizer = get_regularizer(kernel_regularizer, session=self.session)
                 self.use_bias = use_bias
                 self.layers_inner = layers_inner
                 self.activation = get_activation(activation, session=self.session, training=self.training)
@@ -771,6 +822,7 @@ class Conv1DResidualLayer(object):
                             padding=self.padding,
                             kernel_initializer=self.kernel_initializer,
                             bias_initializer=self.bias_initializer,
+                            kernel_regularizer=self.kernel_regularizer,
                             strides=cur_strides,
                             use_bias=self.use_bias,
                             name=name
@@ -799,6 +851,7 @@ class Conv1DResidualLayer(object):
                             self.conv_output_shapes[-1][0] * out_dim,
                             input_shape=[self.conv_output_shapes[0][0] * self.conv_output_shapes[0][1]],
                             kernel_initializer=self.kernel_initializer,
+                            kernel_regularizer=self.kernel_regularizer,
                             bias_initializer=self.bias_initializer
                         )
 
@@ -816,6 +869,8 @@ class RNNLayer(object):
             kernel_initializer='he_normal_initializer',
             recurrent_initializer='orthogonal_initializer',
             bias_initializer='zeros_initializer',
+            kernel_regularizer=None,
+            recurrent_regularizer=None,
             refeed_outputs=False,
             return_sequences=True,
             batch_normalization_decay=None,
@@ -832,6 +887,8 @@ class RNNLayer(object):
                 self.kernel_initializer = get_initializer(kernel_initializer, session=self.session)
                 self.recurrent_initializer = get_initializer(recurrent_initializer, session=self.session)
                 self.bias_initializer = get_initializer(bias_initializer, session=self.session)
+                self.kernel_regularizer = get_regularizer(kernel_regularizer, session=self.session)
+                self.recurrent_regularizer = get_regularizer(recurrent_regularizer, session=self.session)
                 self.refeed_outputs = refeed_outputs
                 self.return_sequences = return_sequences
                 self.batch_normalization_decay = batch_normalization_decay
@@ -857,6 +914,8 @@ class RNNLayer(object):
                         kernel_initializer=self.kernel_initializer,
                         recurrent_initializer=self.recurrent_initializer,
                         bias_initializer=self.bias_initializer,
+                        kernel_regularizer=self.kernel_regularizer,
+                        recurrent_regularizer=self.recurrent_regularizer,
                         return_sequences=self.return_sequences,
                         activation=self.activation,
                         recurrent_activation=self.recurrent_activation,
@@ -888,3 +947,39 @@ class RNNLayer(object):
 
     def call(self, *args, **kwargs):
         self.__call__(*args, **kwargs)
+        
+
+class TransformerLayer(object):
+
+    def __init__(
+            self,
+            training=True,
+            units=None,
+            activation=None,
+            kernel_initializer='he_normal_initializer',
+            bias_initializer='zeros_initializer',
+            kernel_regularizer=None,
+            batch_normalization_decay=None,
+            name=None,
+            session=None
+    ):
+        self.session = get_session(session)
+        with session.as_default():
+            with session.graph.as_default():
+                self.training = training
+                self.units = units
+                self.activation = get_activation(activation, session=self.session, training=self.training)
+                self.kernel_initializer = get_initializer(kernel_initializer, session=self.session)
+                self.bias_initializer = get_initializer(bias_initializer, session=self.session)
+                self.batch_normalization_decay = batch_normalization_decay
+                self.name = name
+
+                self.transformer_layer = None
+
+                self.built = False
+                
+    def build(self, inputs):
+        if not self.built:
+            with self.session.as_default():
+                with self.session.graph.as_default():
+                    pass

@@ -85,6 +85,7 @@ if __name__ == '__main__':
         data,
         1000000,
         train_gold_tree_path=p.parsing_train_gold_trees_path,
-        dev_gold_tree_path=p.parsing_dev_gold_trees_path
+        dev_gold_tree_path=p.parsing_dev_gold_trees_path,
+        run_initial_eval=False
     )
 
