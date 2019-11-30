@@ -2175,7 +2175,8 @@ class SynSemNet(object):
             if return_syn_wp_prediction or return_sem_wp_prediction:
                 info_dict['wp_parsing_true'] = []
             if return_syn_bow_prediction or return_sem_bow_prediction:
-                gold_keys.remove('bow_parsing_true')
+                if 'bow_parsing_true' in gold_keys:
+                    gold_keys.remove('bow_parsing_true')
                 info_dict['bow_parsing_true'] = []
                 to_run += [self.parsing_bow_true]
                 to_run_names += ['bow_parsing_true']
@@ -2193,8 +2194,10 @@ class SynSemNet(object):
                 info_dict['wp_sts_s1_true'] = []
                 info_dict['wp_sts_s2_true'] = []
             if return_syn_bow_prediction or return_sem_bow_prediction:
-                gold_keys.remove('bow_sts_s1_true')
-                gold_keys.remove('bow_sts_s2_true')
+                if 'bow_sts_s1_true' in gold_keys:
+                    gold_keys.remove('bow_sts_s1_true')
+                if 'bow_sts_s2_true' in gold_keys:
+                    gold_keys.remove('bow_sts_s2_true')
                 info_dict['bow_sts_s1_true'] = []
                 info_dict['bow_sts_s2_true'] = []
                 to_run += [self.sts_s1_bow_true, self.sts_s2_bow_true]
@@ -3288,7 +3291,7 @@ class SynSemNet(object):
 
     def report_bow_eval(self, bow_eval, indent=0):
         out = ''
-        for e in ('syn', 'sem'):
+        for e in ('sem', 'syn'):
             out += ' ' * indent + 'BOW eval (%s):\n' % e
 
             k = 'bow_f_' + e
@@ -3959,11 +3962,6 @@ class SynSemNet(object):
                 out['bow_p_%s' % e] = p * 100
                 out['bow_r_%s' % e] = r * 100
                 out['bow_f_%s' % e] = f * 100
-
-                print(tp)
-                print(fp)
-                print(fn)
-                print(out)
 
         return out
 
